@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-neutral-950 text-neutral-100 antialiased;
+  margin: 0;
+}
+
+/* uPlot dark theme tweaks */
+.uplot,
+.uplot * {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.u-axis {
+  color: #a3a3a3;
+}
