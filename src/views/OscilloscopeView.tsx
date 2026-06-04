@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Waveform } from "@/components/Waveform";
 import { useDeviceStore } from "@/store/deviceStore";
+import { saveHistory } from "@/store/historyStore";
+import { toast } from "@/store/toastStore";
 import {
   DsoCommand,
   DsoStatus,
@@ -37,7 +39,9 @@ export function OscilloscopeView() {
   const [meta, setMeta] = useState<DsoMetadata | null>(null);
   const [values, setValues] = useState<number[]>([]);
   const [running, setRunning] = useState(false);
+  const [continuous, setContinuous] = useState(false);
   const bufferRef = useRef<DsoCaptureBuffer | null>(null);
+  const pendingRestartRef = useRef(false);
 
   const isVoltage = mode === MeterMode.DcVoltage || mode === MeterMode.AcVoltage;
   const rangeTable = isVoltage ? PokitProRanges.voltage : PokitProRanges.current;
@@ -60,7 +64,17 @@ export function OscilloscopeView() {
         setMeta(m);
         if (!bufferRef.current) bufferRef.current = new DsoCaptureBuffer(m.numberOfSamples, m.scale);
         else bufferRef.current.reset(m.numberOfSamples, m.scale);
-        if (m.status === DsoStatus.Done) setRunning(false);
+        if (m.status === DsoStatus.Done) {
+          if (continuous && pendingRestartRef.current) {
+            // Auto-restart for continuous mode.
+            pendingRestartRef.current = false;
+            setTimeout(() => {
+              if (!cancelled) void start();
+            }, 100);
+          } else {
+            setRunning(false);
+          }
+        }
       });
       unsubSamples = await device.dso.onSamples((samples) => {
         if (cancelled || !bufferRef.current) return;
@@ -80,6 +94,7 @@ export function OscilloscopeView() {
   const start = async () => {
     setValues([]);
     setRunning(true);
+    pendingRestartRef.current = continuous;
     try {
       await device.dso.startDso({
         command,
@@ -91,14 +106,45 @@ export function OscilloscopeView() {
       });
     } catch {
       setRunning(false);
+      pendingRestartRef.current = false;
     }
+  };
+
+  const stop = () => {
+    pendingRestartRef.current = false;
+    setContinuous(false);
+    setRunning(false);
+  };
+
+  const handleSave = async () => {
+    if (!values.length) return;
+    const name = `Scope ${mode === MeterMode.DcVoltage || mode === MeterMode.AcVoltage ? "Voltage" : "Current"} ${new Date().toLocaleTimeString()}`;
+    await saveHistory("scope", name, {
+      xs,
+      ys: values,
+      unit,
+      mode,
+      range,
+      sampleRate,
+      numSamples,
+    });
+    toast.success("Saved capture to history");
   };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <Card>
-        <CardHeader>
+      <Card className="relative">
+        <CardHeader className="flex items-center justify-between">
           <CardTitle>Waveform</CardTitle>
+          {running && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+              {continuous ? "Continuous" : "Sampling"}
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           {values.length ? (
@@ -108,14 +154,17 @@ export function OscilloscopeView() {
               {connected ? "Run a capture to see a waveform" : "Connect a device to begin"}
             </div>
           )}
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="Vpp" value={formatSi(metrics.peakToPeak, unit)} />
-            <Metric label="RMS" value={formatSi(metrics.rms, unit)} />
-            <Metric label="Mean" value={formatSi(metrics.mean, unit)} />
-            <Metric label="Frequency" value={formatSi(metrics.frequency, "Hz")} />
-            <Metric label="Period" value={formatSi(metrics.period, "s")} />
-            <Metric label="Duty" value={`${(metrics.dutyCycle * 100).toFixed(1)} %`} />
-          </div>
+          {/* Floating metrics strip */}
+          {values.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 rounded-lg bg-neutral-800/60 p-2">
+              <MetricPill label="Vpp" value={formatSi(metrics.peakToPeak, unit)} />
+              <MetricPill label="RMS" value={formatSi(metrics.rms, unit)} />
+              <MetricPill label="Mean" value={formatSi(metrics.mean, unit)} />
+              <MetricPill label="Freq" value={formatSi(metrics.frequency, "Hz")} />
+              <MetricPill label="Period" value={formatSi(metrics.period, "s")} />
+              <MetricPill label="Duty" value={`${(metrics.dutyCycle * 100).toFixed(1)} %`} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -174,8 +223,22 @@ export function OscilloscopeView() {
               className="w-full"
             />
           </Field>
-          <Button variant="primary" onClick={start} disabled={!connected || running}>
-            {running ? "Sampling…" : "Run capture"}
+          <div className="flex gap-2">
+            <Button variant="toggle" size="sm" active={continuous} onClick={() => setContinuous((c) => !c)}>
+              {continuous ? "Continuous" : "One-shot"}
+            </Button>
+            {running ? (
+              <Button variant="danger" size="sm" onClick={stop}>
+                Stop
+              </Button>
+            ) : (
+              <Button variant="primary" size="sm" onClick={start} disabled={!connected}>
+                Run capture
+              </Button>
+            )}
+          </div>
+          <Button variant="secondary" size="sm" onClick={handleSave} disabled={!values.length}>
+            Save capture
           </Button>
           {meta && (
             <p className="text-xs text-neutral-500">
@@ -197,11 +260,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-neutral-800/60 px-3 py-2">
-      <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
-      <div className="font-mono text-lg text-neutral-100">{value}</div>
+    <div className="rounded-md bg-neutral-900/80 px-2 py-1">
+      <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
+      <span className="ml-1 font-mono text-sm text-neutral-200">{value}</span>
     </div>
   );
 }

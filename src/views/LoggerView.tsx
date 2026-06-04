@@ -4,11 +4,14 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Waveform } from "@/components/Waveform";
 import { useDeviceStore } from "@/store/deviceStore";
+import { saveHistory } from "@/store/historyStore";
+import { toast } from "@/store/toastStore";
 import {
   LoggerStatus,
   MeterMode,
   PokitProRanges,
   formatSi,
+  modeLabel,
   unitForMode,
   type LoggerMetadata,
 } from "@/pokit";
@@ -105,7 +108,20 @@ export function LoggerView() {
       await device.logger.stopLogger();
     } finally {
       setLogging(false);
+      // Auto-save completed session.
+      if (samples.length > 0) {
+        const name = `Logger ${modeLabel(mode)} ${new Date().toLocaleTimeString()}`;
+        await saveHistory("logger", name, [...samples]);
+        toast.success("Logger session saved to history");
+      }
     }
+  };
+
+  const handleSave = async () => {
+    if (!samples.length) return;
+    const name = `Logger ${modeLabel(mode)} ${new Date().toLocaleTimeString()}`;
+    await saveHistory("logger", name, [...samples]);
+    toast.success("Saved to history");
   };
 
   // Download the buffered log from the device (Refresh command).
@@ -135,9 +151,18 @@ export function LoggerView() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <Card>
-        <CardHeader>
+      <Card className="relative">
+        <CardHeader className="flex items-center justify-between">
           <CardTitle>Logged data {meta ? `· ${samples.length} samples` : ""}</CardTitle>
+          {logging && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-400">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+              </span>
+              REC
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           {samples.length ? (
@@ -199,6 +224,9 @@ export function LoggerView() {
           </Button>
           <Button variant="ghost" onClick={exportCsv} disabled={!samples.length}>
             Export CSV
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleSave} disabled={!samples.length}>
+            Save to history
           </Button>
           {meta && (
             <p className="text-xs text-neutral-500">Scale: {formatSi(meta.scale, "")} · interval {meta.updateIntervalMs} ms</p>

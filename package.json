@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "idb-keyval": "^6.2.1",
     "lucide-react": "^0.453.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -21,9 +22,9 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
-    "@types/node": "^22.7.5",
     "@types/web-bluetooth": "^0.0.20",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",

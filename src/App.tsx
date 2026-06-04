@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Activity, Gauge, LineChart, Info } from "lucide-react";
 import { ConnectBar } from "./components/ConnectBar";
+import { HistoryDrawer } from "./components/HistoryDrawer";
 import { MultimeterView } from "./views/MultimeterView";
 import { OscilloscopeView } from "./views/OscilloscopeView";
 import { LoggerView } from "./views/LoggerView";
@@ -18,10 +19,12 @@ const TABS: { id: Tab; label: string; icon: typeof Gauge }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("meter");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
     <div className="flex min-h-full flex-col">
-      <ConnectBar />
+      <ConnectBar onOpenHistory={() => setHistoryOpen(true)} />
+      <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
       <nav className="flex gap-1 border-b border-neutral-800 bg-neutral-900/50 px-2">
         {TABS.map(({ id, label, icon: Icon }) => (
