@@ -11,6 +11,7 @@ export type NotifyHandler = (value: DataView) => void;
 
 export abstract class AbstractPokitService {
   protected service: BluetoothRemoteGATTService | null = null;
+  private cachedGeneration = -1;
   private readonly notifying = new Map<string, BluetoothRemoteGATTCharacteristic>();
 
   constructor(
@@ -18,10 +19,14 @@ export abstract class AbstractPokitService {
     protected readonly serviceUuid: BluetoothServiceUUID,
   ) {}
 
-  /** Resolve the underlying GATT service (cached by the connection). */
+  /**
+   * Resolve the underlying GATT service. Re-fetches whenever the connection
+   * generation changes (i.e. after a reconnect) so we never use stale handles.
+   */
   protected async ensureService(): Promise<BluetoothRemoteGATTService> {
-    if (!this.service) {
+    if (!this.service || this.cachedGeneration !== this.connection.generation) {
       this.service = await this.connection.getService(this.serviceUuid);
+      this.cachedGeneration = this.connection.generation;
     }
     return this.service;
   }

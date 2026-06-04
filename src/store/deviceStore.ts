@@ -9,11 +9,15 @@ import {
   type DeviceCharacteristics,
   type DeviceStatus,
 } from "@/pokit";
+import { toast } from "./toastStore";
+
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 export type ConnectionState =
   | "unsupported"
   | "disconnected"
   | "connecting"
+  | "reconnecting"
   | "connected";
 
 interface DeviceState {
@@ -25,8 +29,11 @@ interface DeviceState {
   torchOn: boolean;
   error: string | null;
 
+  reconnectAttempt: number;
+
   connect: () => Promise<void>;
   disconnect: () => void;
+  attemptReconnect: () => Promise<void>;
   refreshInfo: () => Promise<void>;
   flashLed: () => Promise<void>;
   toggleTorch: () => Promise<void>;
@@ -36,16 +43,23 @@ interface DeviceState {
 const device = new PokitDevice();
 
 export const useDeviceStore = create<DeviceState>((set, get) => {
-  // Reflect unexpected disconnects in the UI.
+  // React to connection drops: auto-reconnect unless the user asked to disconnect.
   device.connection.onConnectionChange((connected) => {
-    if (!connected) {
-      set({
-        connectionState: "disconnected",
-        characteristics: null,
-        status: null,
-      });
+    if (connected) return;
+    set({ characteristics: null, status: null });
+    if (device.connection.wasIntentionalDisconnect) {
+      set({ connectionState: "disconnected" });
+    } else if (device.connection.canReconnect) {
+      void get().attemptReconnect();
+    } else {
+      set({ connectionState: "disconnected" });
+      toast.error("Device disconnected");
     }
   });
+
+  const subscribeStatus = async () => {
+    await device.status.onStatus((status) => set({ status }));
+  };
 
   return {
     device,
@@ -55,26 +69,52 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     status: null,
     torchOn: false,
     error: null,
+    reconnectAttempt: 0,
 
     async connect() {
-      set({ connectionState: "connecting", error: null });
+      set({ connectionState: "connecting", error: null, reconnectAttempt: 0 });
       try {
         await device.connect();
         set({ connectionState: "connected", deviceName: device.name });
         await get().refreshInfo();
-        // Subscribe to live status updates.
-        await device.status.onStatus((status) => set({ status }));
+        await subscribeStatus();
+        toast.success(`Connected to ${device.name}`);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         set({
           connectionState: device.isConnected ? "connected" : "disconnected",
-          error: err instanceof Error ? err.message : String(err),
+          error: message,
         });
+        if (!/cancelled|user gesture|chooser/i.test(message)) {
+          toast.error(message);
+        }
       }
     },
 
     disconnect() {
       device.disconnect();
       set({ connectionState: "disconnected", characteristics: null, status: null });
+      toast.info("Disconnected");
+    },
+
+    async attemptReconnect() {
+      for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
+        if (device.isConnected) return;
+        set({ connectionState: "reconnecting", reconnectAttempt: attempt });
+        if (attempt === 1) toast.warning("Connection lost — reconnecting…");
+        try {
+          await device.connection.reconnect();
+          set({ connectionState: "connected", deviceName: device.name, reconnectAttempt: 0 });
+          await get().refreshInfo();
+          await subscribeStatus();
+          toast.success("Reconnected");
+          return;
+        } catch {
+          await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+        }
+      }
+      set({ connectionState: "disconnected", reconnectAttempt: 0 });
+      toast.error("Could not reconnect to the device");
     },
 
     async refreshInfo() {

@@ -29,6 +29,10 @@ export class PokitConnection {
   private product: PokitProduct = PokitProduct.PokitPro;
   private readonly services = new Map<string, BluetoothRemoteGATTService>();
   private readonly listeners = new Set<ConnectionListener>();
+  /** Bumped on every successful (re)connect so services can drop stale handles. */
+  private _generation = 0;
+  /** True while a user-requested disconnect is in progress (suppresses reconnect). */
+  private _intentionalDisconnect = false;
 
   static isAvailable(): boolean {
     return typeof navigator !== "undefined" && !!navigator.bluetooth;
@@ -44,6 +48,21 @@ export class PokitConnection {
 
   get pokitProduct(): PokitProduct {
     return this.product;
+  }
+
+  /** Increments on each successful connect; used to invalidate cached services. */
+  get generation(): number {
+    return this._generation;
+  }
+
+  /** Whether the most recent disconnect was user-initiated. */
+  get wasIntentionalDisconnect(): boolean {
+    return this._intentionalDisconnect;
+  }
+
+  /** Whether we have a previously-selected device we can silently reconnect to. */
+  get canReconnect(): boolean {
+    return !!this.device?.gatt;
   }
 
   onConnectionChange(listener: ConnectionListener): () => void {
@@ -83,8 +102,17 @@ export class PokitConnection {
   private async connectServer(): Promise<void> {
     if (!this.device?.gatt) throw new Error("No GATT interface on device.");
     this.server = await this.device.gatt.connect();
+    this._generation += 1;
+    this.services.clear();
     await this.discoverProduct();
     this.emit(true);
+  }
+
+  /** Reconnect to the already-selected device without re-prompting the user. */
+  async reconnect(): Promise<void> {
+    if (!this.device?.gatt) throw new Error("No device to reconnect to.");
+    this._intentionalDisconnect = false;
+    await this.connectServer();
   }
 
   private async discoverProduct(): Promise<void> {
@@ -123,6 +151,7 @@ export class PokitConnection {
   }
 
   disconnect(): void {
+    this._intentionalDisconnect = true;
     if (this.device?.gatt?.connected) {
       this.device.gatt.disconnect();
     }

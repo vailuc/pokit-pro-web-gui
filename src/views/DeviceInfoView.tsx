@@ -16,7 +16,7 @@ export function DeviceInfoView() {
 
   if (!connected) {
     return (
-      <div className="mx-auto max-w-2xl">
+      <div className="w-full">
         <Card>
           <CardContent>
             <p className="py-8 text-center text-sm text-neutral-500">
@@ -42,7 +42,7 @@ export function DeviceInfoView() {
     : [];
 
   return (
-    <div className="mx-auto grid max-w-2xl gap-4">
+    <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Device characteristics</CardTitle>
