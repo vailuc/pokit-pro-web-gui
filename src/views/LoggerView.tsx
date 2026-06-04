@@ -36,8 +36,10 @@ export function LoggerView() {
   const [meta, setMeta] = useState<LoggerMetadata | null>(null);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [logging, setLogging] = useState(false);
-  const startRef = useRef<number>(0);
+  const [downloading, setDownloading] = useState(false);
   const scaleRef = useRef<number>(1);
+  const intervalSecRef = useRef<number>(1);
+  const countRef = useRef<number>(0);
 
   const isVoltage = mode === MeterMode.DcVoltage || mode === MeterMode.AcVoltage;
   const isCurrent = mode === MeterMode.DcCurrent || mode === MeterMode.AcCurrent;
@@ -63,16 +65,20 @@ export function LoggerView() {
         if (cancelled) return;
         setMeta(m);
         scaleRef.current = m.scale;
+        // Prefer the device-reported interval for the time axis.
+        intervalSecRef.current = (m.updateIntervalMs || intervalMs) / 1000;
         if (m.status === LoggerStatus.Done || m.status === LoggerStatus.BufferFull) {
-          setLogging(false);
+          setDownloading(false);
         }
       });
       unsubSamples = await device.logger.onSamples((raw) => {
         if (cancelled) return;
-        const now = (Date.now() - startRef.current) / 1000;
         setSamples((prev) => {
           const next = [...prev];
-          raw.forEach((s, i) => next.push({ t: now + i * (intervalMs / 1000), v: s * scaleRef.current }));
+          for (const s of raw) {
+            next.push({ t: countRef.current * intervalSecRef.current, v: s * scaleRef.current });
+            countRef.current += 1;
+          }
           return next;
         });
       });
@@ -86,8 +92,6 @@ export function LoggerView() {
   }, [connected, device, intervalMs]);
 
   const start = async () => {
-    setSamples([]);
-    startRef.current = Date.now();
     setLogging(true);
     try {
       await device.logger.startLogger({ mode, range, updateIntervalMs: intervalMs });
@@ -101,6 +105,19 @@ export function LoggerView() {
       await device.logger.stopLogger();
     } finally {
       setLogging(false);
+    }
+  };
+
+  // Download the buffered log from the device (Refresh command).
+  const download = async () => {
+    setSamples([]);
+    countRef.current = 0;
+    intervalSecRef.current = intervalMs / 1000;
+    setDownloading(true);
+    try {
+      await device.logger.refreshData();
+    } catch {
+      setDownloading(false);
     }
   };
 
@@ -127,7 +144,9 @@ export function LoggerView() {
             <Waveform xs={xs} ys={ys} xLabel="Time (s)" yLabel={unit} />
           ) : (
             <div className="grid h-80 place-items-center text-sm text-neutral-500">
-              {connected ? "Start logging to record data over time" : "Connect a device to begin"}
+              {connected
+                ? "Start logging, then Download data to plot the device's recorded log"
+                : "Connect a device to begin"}
             </div>
           )}
         </CardContent>
@@ -175,7 +194,10 @@ export function LoggerView() {
               Start logging
             </Button>
           )}
-          <Button variant="secondary" onClick={exportCsv} disabled={!samples.length}>
+          <Button variant="secondary" onClick={download} disabled={!connected || downloading}>
+            {downloading ? "Downloading…" : "Download data"}
+          </Button>
+          <Button variant="ghost" onClick={exportCsv} disabled={!samples.length}>
             Export CSV
           </Button>
           {meta && (

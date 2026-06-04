@@ -96,6 +96,23 @@ export class LoggerService extends AbstractPokitService {
     await this.write(this.chars.settings, LoggerService.encodeSettings(stop));
   }
 
+  /**
+   * Request the device to download its buffered log. The Pokit records samples
+   * to internal memory; sending Refresh causes it to emit a Metadata update
+   * followed by a stream of Reading notifications with the stored samples.
+   */
+  async refreshData(): Promise<void> {
+    const refresh: LoggerSettings = {
+      command: LoggerCommand.Refresh,
+      arguments: 0,
+      mode: MeterMode.Idle,
+      range: 0,
+      updateIntervalMs: 0,
+      timestamp: 0,
+    };
+    await this.write(this.chars.settings, LoggerService.encodeSettings(refresh));
+  }
+
   async readMetadata(): Promise<LoggerMetadata> {
     const view = await this.read(this.chars.metadata);
     return LoggerService.parseMetadata(view);
