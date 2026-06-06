@@ -1,7 +1,7 @@
 # Pokit Pro Web GUI
 
 [![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
-[![License](https://img.shields.io/badge/license-MIT-green)]()
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)]()
 
 A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**.
 
@@ -162,4 +162,4 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+GPL-3.0 — see [`LICENSE`](LICENSE).
