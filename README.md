@@ -1,7 +1,7 @@
 # Pokit Pro Web GUI
 
 [![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue)]()
+[![License](https://img.shields.io/badge/license-GPL--3.0%20%2F%20Commercial-blue)]()
 
 A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**.
 
@@ -160,6 +160,10 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 - **Pokit Innovations** — For the Pokit Pro hardware.
 - [**uPlot**](https://github.com/leeoniya/uPlot) — Lightweight plotting library used for the oscilloscope.
 
+## Contributing
+
+Contributions are welcome. By submitting a pull request, you agree to the terms in [`CLA.md`](CLA.md), which grants the project maintainer the right to use your contributions under both the open-source and commercial licenses.
+
 ## License
 
-GPL-3.0 — see [`LICENSE`](LICENSE).
+Dual-licensed under GPL-3.0 (open source) and a commercial license. See [`LICENSING.md`](LICENSING.md) for details. Full GPL-3.0 text is in [`LICENSE`](LICENSE).
