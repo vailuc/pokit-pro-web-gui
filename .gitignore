@@ -5,3 +5,10 @@ dist-ssr
 .DS_Store
 .vite
 coverage
+
+# Internal planning docs (keep local, not on GitHub)
+PLAN.md
+PLAN-REVIEW.md
+UX_PLAN.md
+SPEC.md
+webui.md
