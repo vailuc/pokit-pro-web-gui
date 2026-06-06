@@ -1,21 +1,52 @@
 # Pokit Pro Web GUI
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/marcus/pokit-pro-web-gui)
+[![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
 [![License](https://img.shields.io/badge/license-MIT-green)]()
 
-A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**. No backend, no app store — just a static web app.
+A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**.
 
-The BLE protocol is a clean-room reimplementation based on the excellent [**pcolby/dokit**](https://github.com/pcolby/dokit) (Qt/C++) project.
+**No cloud services. No account required. No backend.** All communication occurs directly between your browser and the Pokit Pro over Bluetooth LE.
+
+The BLE protocol is an independent TypeScript implementation based on interoperability observations and the reference [**pcolby/dokit**](https://github.com/pcolby/dokit) (Qt/C++) project.
+
+## Project Status
+
+Early alpha (v0.1.0).
+
+Core functionality implemented and verified:
+- BLE connection, pairing, and auto-reconnect
+- Multimeter live readings with HOLD/REL/MinMaxAvg
+- Oscilloscope capture with waveform metrics
+- Data logger with CSV export
+- IndexedDB measurement history
+
+Still under active development and protocol validation.
 
 ## Features
 
 - **Multimeter** — live DC/AC voltage, current, resistance, continuity, diode, temperature and capacitance with mode/range/interval controls, HOLD/REL/MinMaxAvg, and continuity beep.
 - **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
 - **Data Logger** — interval logging over time with CSV export and auto-save.
-- **Device** — firmware/limits/MAC, live status & battery, flash LED, torch, rename.
+- **Device** — firmware info, limits, live status & battery, flash LED, torch, rename.
 - **IndexedDB History** — saved measurements with searchable history drawer.
 - **Toast Feedback** — non-blocking status notifications.
 - **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.
+
+## Screenshots
+
+> Screenshots coming soon.
+
+### Multimeter
+*(image placeholder)*
+
+### Oscilloscope
+*(image placeholder)*
+
+### Data Logger
+*(image placeholder)*
+
+### Device Information
+*(image placeholder)*
 
 ## Requirements
 
@@ -28,6 +59,13 @@ The BLE protocol is a clean-room reimplementation based on the excellent [**pcol
 | Host OS | Linux, macOS, Windows, Raspberry Pi OS |
 | Hardware | Pokit Pro multimeter (BLE 5.0) |
 | Node.js | ≥ 18 (for build) |
+
+### Known limitations
+
+- **No iOS / iPadOS / Safari support** — Web Bluetooth is not available on Apple platforms.
+- **Browser permission prompts required** — Chromium will ask for Bluetooth access on first connect.
+- **Host OS Bluetooth stack** — Linux requires BlueZ; Windows and macOS generally work out of the box.
+- **DSO sample reassembly** — relies on `numberOfSamples` from metadata; very large buffers may stream across multiple notifications.
 
 ### Linux / Raspberry Pi notes
 
@@ -54,13 +92,13 @@ chromium-browser --enable-features=WebBluetoothNewPermissionsBackend
 ## Getting started
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/vailuc/pokit-pro-web-gui.git
 cd pokit-pro-web-gui
 npm install
 npm run dev
 ```
 
-Open the printed `http://localhost:5173`, click **Connect**, and choose your Pokit device (e.g. "Sparky") from the Chromium device chooser.
+Open the printed `http://localhost:5173`, click **Connect**, and choose your Pokit device from the Chromium device chooser.
 
 ## Scripts
 
@@ -106,14 +144,22 @@ The `pokit/` layer has **no React dependency** and is covered by unit tests in:
 | DSO | `1569801e-…9de6` | settings + metadata + sample stream |
 | Data Logger | `a5ff3566-…4121` | settings + metadata + sample stream |
 
-All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` and `SPEC.md` for full byte layouts.
+All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for full byte layouts.
+
+## Roadmap
+
+- [ ] Multi-device support
+- [ ] Session recording and replay
+- [ ] Mobile-friendly responsive layouts
+- [ ] Dark theme polish and custom color skins
+- [ ] Offline PWA support
 
 ## Acknowledgements
 
-- **pcolby/dokit** — Original Qt/C++ Pokit library that this project reverse-engineered and ported to TypeScript.
+- [**pcolby/dokit**](https://github.com/pcolby/dokit) — Original Qt/C++ Pokit library that served as architectural reference.
 - **Pokit Innovations** — For the excellent Pokit Pro hardware.
-- **uPlot** — Lightweight plotting library used for the oscilloscope.
+- [**uPlot**](https://github.com/leeoniya/uPlot) — Lightweight plotting library used for the oscilloscope.
 
 ## License
 
-MIT — see `LICENSE` if present, otherwise treat as open source.
+MIT — see [`LICENSE`](LICENSE).
