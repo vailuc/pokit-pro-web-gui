@@ -1,32 +1,37 @@
 # Pokit Pro Web GUI
 
-A browser-based multimeter, oscilloscope and data logger for the **Pokit Pro**,
-talking directly to the device over **Web Bluetooth**. No backend, no app store —
-just a static web app.
+[![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/marcus/pokit-pro-web-gui)
+[![License](https://img.shields.io/badge/license-MIT-green)]()
 
-The BLE protocol is a clean-room reimplementation based on the excellent
-[pcolby/dokit](https://github.com/pcolby/dokit) project.
+A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**. No backend, no app store — just a static web app.
+
+The BLE protocol is a clean-room reimplementation based on the excellent [**pcolby/dokit**](https://github.com/pcolby/dokit) (Qt/C++) project.
 
 ## Features
 
-- **Multimeter** — live DC/AC voltage, current, resistance, continuity, diode,
-  temperature and capacitance with mode/range/interval controls.
-- **Oscilloscope (DSO)** — triggered/free-running capture with a uPlot waveform
-  and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
-- **Data Logger** — interval logging over time with CSV export.
+- **Multimeter** — live DC/AC voltage, current, resistance, continuity, diode, temperature and capacitance with mode/range/interval controls, HOLD/REL/MinMaxAvg, and continuity beep.
+- **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
+- **Data Logger** — interval logging over time with CSV export and auto-save.
 - **Device** — firmware/limits/MAC, live status & battery, flash LED, torch, rename.
+- **IndexedDB History** — saved measurements with searchable history drawer.
+- **Toast Feedback** — non-blocking status notifications.
+- **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.
 
 ## Requirements
 
-> ⚠️ **Web Bluetooth is Chromium-only.** Use Chrome, Edge, Brave, or Chromium.
-> Firefox and Safari are **not** supported.
+> ⚠️ **Web Bluetooth is Chromium-only.** Use Chrome, Edge, Brave, or Chromium. Firefox and Safari are **not** supported.
 
-- A Chromium-based browser.
-- A **secure context**: `http://localhost` (dev) or HTTPS (production).
-- Bluetooth enabled on the host.
+| Requirement | Version / Notes |
+|-------------|-----------------|
+| Browser | Chrome ≥ 89, Edge ≥ 89, Brave, Chromium |
+| Context | Secure (`http://localhost` or HTTPS) |
+| Host OS | Linux, macOS, Windows, Raspberry Pi OS |
+| Hardware | Pokit Pro multimeter (BLE 5.0) |
+| Node.js | ≥ 18 (for build) |
 
 ### Linux / Raspberry Pi notes
-Web Bluetooth on Linux uses BlueZ and may require enabling:
+
+Web Bluetooth on Linux uses BlueZ and may require enabling the experimental flag:
 
 ```
 chrome://flags/#enable-experimental-web-platform-features
@@ -49,19 +54,22 @@ chromium-browser --enable-features=WebBluetoothNewPermissionsBackend
 ## Getting started
 
 ```bash
+git clone <repo-url>
+cd pokit-pro-web-gui
 npm install
 npm run dev
 ```
 
-Open the printed `http://localhost:5173`, click **Connect**, and choose your
-Pokit device (e.g. "Sparky").
+Open the printed `http://localhost:5173`, click **Connect**, and choose your Pokit device (e.g. "Sparky") from the Chromium device chooser.
 
 ## Scripts
 
-- `npm run dev` — start the Vite dev server.
-- `npm run build` — type-check and build for production.
-- `npm run preview` — preview the production build.
-- `npm test` — run codec unit tests (Vitest).
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Start Vite dev server |
+| `npm run build` | Type-check and build for production |
+| `npm run preview` | Preview the production build |
+| `npm test` | Run unit tests (Vitest) |
 
 ## Architecture
 
@@ -84,8 +92,10 @@ src/
   App.tsx         Tabbed shell
 ```
 
-The `pokit/` layer has no React dependency and is covered by unit tests in
-`src/pokit/codec.test.ts`, `src/lib/waveformMetrics.test.ts`, and `src/lib/format.test.ts`.
+The `pokit/` layer has **no React dependency** and is covered by unit tests in:
+- `src/pokit/codec.test.ts`
+- `src/lib/waveformMetrics.test.ts`
+- `src/lib/format.test.ts`
 
 ## Protocol summary
 
@@ -96,19 +106,14 @@ The `pokit/` layer has no React dependency and is covered by unit tests in
 | DSO | `1569801e-…9de6` | settings + metadata + sample stream |
 | Data Logger | `a5ff3566-…4121` | settings + metadata + sample stream |
 
-All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` and
-`PLAN.md` for full byte layouts.
+All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` and `SPEC.md` for full byte layouts.
 
-## Status
+## Acknowledgements
 
-Core features implemented and verified against a Pokit Pro ("Sparky").
+- **pcolby/dokit** — Original Qt/C++ Pokit library that this project reverse-engineered and ported to TypeScript.
+- **Pokit Innovations** — For the excellent Pokit Pro hardware.
+- **uPlot** — Lightweight plotting library used for the oscilloscope.
 
-- Multimeter, DSO, and Logger views are functional with live BLE notifications.
-- Auto-reconnect, IndexedDB history, CSV export, and toast feedback are active.
-- CSS custom properties in `index.css` provide a theme foundation for future
-  LCARS-style skins and multi-instrument dashboards (Hantek, webcams, etc.).
+## License
 
-Known limitations:
-- Web Bluetooth is Chromium-only; Firefox/Safari will never work.
-- DSO sample reassembly relies on `numberOfSamples` from metadata; very large
-  buffers may stream across multiple notifications — validate on your device.
+MIT — see `LICENSE` if present, otherwise treat as open source.
