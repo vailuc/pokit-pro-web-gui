@@ -8,8 +8,10 @@ import {
   PokitDevice,
   type DeviceCharacteristics,
   type DeviceStatus,
+  type MeterReading,
 } from "@/pokit";
 import { toast } from "./toastStore";
+import { saveHistory } from "./historyStore";
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
@@ -28,6 +30,7 @@ interface DeviceState {
   status: DeviceStatus | null;
   torchOn: boolean;
   error: string | null;
+  lastMeterReading: MeterReading | null;
 
   reconnectAttempt: number;
 
@@ -38,16 +41,19 @@ interface DeviceState {
   flashLed: () => Promise<void>;
   toggleTorch: () => Promise<void>;
   setName: (name: string) => Promise<void>;
+  setLastMeterReading: (r: MeterReading | null) => void;
 }
 
 const device = new PokitDevice();
 
 export const useDeviceStore = create<DeviceState>((set, get) => {
   let statusUnsub: (() => Promise<void>) | null = null;
+  let buttonUnsub: (() => Promise<void>) | null = null;
 
   // React to connection drops: auto-reconnect unless the user asked to disconnect.
   device.connection.onConnectionChange((connected) => {
     if (connected) return;
+    if (buttonUnsub) { try { void buttonUnsub(); } catch { /* ignore */ } buttonUnsub = null; }
     set({ characteristics: null, status: null });
     if (device.connection.wasIntentionalDisconnect) {
       set({ connectionState: "disconnected" });
@@ -67,6 +73,34 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     statusUnsub = await device.status.onStatus((status) => set({ status }));
   };
 
+  const subscribeButton = async () => {
+    if (buttonUnsub) {
+      try { await buttonUnsub(); } catch { /* device may be gone */ }
+      buttonUnsub = null;
+    }
+    try {
+      buttonUnsub = await device.status.onButtonPress((raw) => {
+        const isRelease = raw.length >= 2 && raw[1] === 0x00;
+        if (isRelease) {
+          const reading = get().lastMeterReading;
+          if (reading) {
+            void saveHistory("meter", `Button ${new Date().toLocaleTimeString()}`, {
+              value: reading.value,
+              mode: reading.mode,
+              range: reading.range,
+              status: reading.status,
+            });
+            toast.success("Saved to history");
+          } else {
+            toast.info("No meter reading to save");
+          }
+        }
+      });
+    } catch {
+      /* button press characteristic may not exist on all firmwares */
+    }
+  };
+
   return {
     device,
     connectionState: PokitDevice.isSupported() ? "disconnected" : "unsupported",
@@ -75,6 +109,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     status: null,
     torchOn: false,
     error: null,
+    lastMeterReading: null,
     reconnectAttempt: 0,
 
     async connect() {
@@ -84,6 +119,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
         set({ connectionState: "connected", deviceName: device.name });
         await get().refreshInfo();
         await subscribeStatus();
+        await subscribeButton();
         toast.success(`Connected to ${device.name}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -102,6 +138,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
         try { void statusUnsub(); } catch { /* ignore */ }
         statusUnsub = null;
       }
+      if (buttonUnsub) {
+        try { void buttonUnsub(); } catch { /* ignore */ }
+        buttonUnsub = null;
+      }
       device.disconnect();
       set({ connectionState: "disconnected", characteristics: null, status: null });
       toast.info("Disconnected");
@@ -117,6 +157,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
           set({ connectionState: "connected", deviceName: device.name, reconnectAttempt: 0 });
           await get().refreshInfo();
           await subscribeStatus();
+          await subscribeButton();
           toast.success("Reconnected");
           return;
         } catch {
@@ -143,8 +184,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     async flashLed() {
       try {
         await device.status.flashLed();
+        toast.info("Flashed LED");
       } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) });
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error(`Flash LED failed: ${msg}`);
+        set({ error: `Flash LED failed: ${msg}` });
       }
     },
 
@@ -153,8 +197,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
       try {
         await device.status.setTorch(next);
         set({ torchOn: next });
+        toast.info(next ? "Torch on" : "Torch off");
       } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) });
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error(`Torch failed: ${msg}`);
+        set({ error: `Torch failed: ${msg}` });
       }
     },
 
@@ -165,6 +212,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
       } catch (err) {
         set({ error: err instanceof Error ? err.message : String(err) });
       }
+    },
+
+    setLastMeterReading(r: MeterReading | null) {
+      set({ lastMeterReading: r });
     },
   };
 });

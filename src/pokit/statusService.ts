@@ -82,11 +82,23 @@ export class StatusService extends AbstractPokitService {
 
   /** Flash the device's status LED. */
   async flashLed(): Promise<void> {
-    await this.write(this.chars.flashLed, new Uint8Array([1]).buffer);
+    await this.write(this.chars.flashLed, new Uint8Array([1]).buffer, true);
   }
 
   /** Toggle the torch (undocumented characteristic; Pokit Pro only). */
   async setTorch(on: boolean): Promise<void> {
-    await this.write(this.chars.torch, new Uint8Array([on ? 1 : 0]).buffer);
+    await this.write(this.chars.torch, new Uint8Array([on ? 1 : 0]).buffer, true);
+  }
+
+  /**
+   * Subscribe to physical button presses (undocumented characteristic).
+   * Logs raw bytes to console so we can reverse-engineer the protocol.
+   */
+  async onButtonPress(handler: (raw: Uint8Array) => void): Promise<() => Promise<void>> {
+    return this.subscribe(this.chars.buttonPress, (view) => {
+      const bytes = new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
+      console.log("[Pokit] Button press raw bytes:", Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(" "));
+      handler(bytes);
+    });
   }
 }

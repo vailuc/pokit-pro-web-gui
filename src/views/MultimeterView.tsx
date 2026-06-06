@@ -38,7 +38,7 @@ interface Stats {
 }
 
 export function MultimeterView() {
-  const { device, connectionState } = useDeviceStore();
+  const { device, connectionState, setLastMeterReading } = useDeviceStore();
   const connected = connectionState === "connected";
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
@@ -84,6 +84,7 @@ export function MultimeterView() {
       await device.multimeter.setSettings({ mode, range, updateIntervalMs: intervalMs });
       unsub = await device.multimeter.onReading((r) => {
         if (cancelled) return;
+        setLastMeterReading(r);
         if (!hold) {
           setReading(r);
           // Update running stats.

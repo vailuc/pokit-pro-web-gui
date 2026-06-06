@@ -1,4 +1,4 @@
-import { Bluetooth, BluetoothConnected, Lightbulb, Flashlight, BatteryFull, BatteryLow, History } from "lucide-react";
+import { Bluetooth, BluetoothConnected, Flashlight, BatteryFull, BatteryLow, History } from "lucide-react";
 import { Button } from "./ui/Button";
 import { useDeviceStore } from "@/store/deviceStore";
 import { batteryPercent } from "@/pokit";
@@ -16,7 +16,6 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
     error,
     connect,
     disconnect,
-    flashLed,
     toggleTorch,
   } = useDeviceStore();
 
@@ -59,20 +58,15 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
           )}
 
           {connected && (
-            <>
-              <Button variant="ghost" size="sm" onClick={flashLed} title="Flash LED">
-                <Lightbulb size={16} />
-              </Button>
-              <Button
-                variant="toggle"
-                size="sm"
-                active={torchOn}
-                onClick={toggleTorch}
-                title="Torch"
-              >
-                <Flashlight size={16} />
-              </Button>
-            </>
+            <Button
+              variant="toggle"
+              size="sm"
+              active={torchOn}
+              onClick={toggleTorch}
+              title="Torch"
+            >
+              <Flashlight size={16} />
+            </Button>
           )}
 
           {onOpenHistory && (
