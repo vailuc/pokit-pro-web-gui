@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  /* Theme foundation — overrideable for LCARS/RPI skins */
+  /* Theme foundation — overrideable for custom skins */
   --color-accent: #ffcc00;
   --color-accent-dark: #e6b800;
   --color-bg: #0a0a0a;

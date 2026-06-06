@@ -68,7 +68,7 @@ export class StatusService extends AbstractPokitService {
     return this.subscribe(this.chars.status, (view) => handler(this.parseStatus(view)));
   }
 
-  /** Read the device name (e.g. "Sparky"). */
+  /** Read the device name (e.g. "Pokit Pro"). */
   async readName(): Promise<string> {
     const view = await this.read(this.chars.name);
     return new TextDecoder().decode(view);
