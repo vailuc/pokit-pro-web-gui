@@ -43,6 +43,8 @@ interface DeviceState {
 const device = new PokitDevice();
 
 export const useDeviceStore = create<DeviceState>((set, get) => {
+  let statusUnsub: (() => Promise<void>) | null = null;
+
   // React to connection drops: auto-reconnect unless the user asked to disconnect.
   device.connection.onConnectionChange((connected) => {
     if (connected) return;
@@ -58,7 +60,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   });
 
   const subscribeStatus = async () => {
-    await device.status.onStatus((status) => set({ status }));
+    if (statusUnsub) {
+      try { await statusUnsub(); } catch { /* device may be gone */ }
+      statusUnsub = null;
+    }
+    statusUnsub = await device.status.onStatus((status) => set({ status }));
   };
 
   return {
@@ -92,6 +98,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     },
 
     disconnect() {
+      if (statusUnsub) {
+        try { void statusUnsub(); } catch { /* ignore */ }
+        statusUnsub = null;
+      }
       device.disconnect();
       set({ connectionState: "disconnected", characteristics: null, status: null });
       toast.info("Disconnected");

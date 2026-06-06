@@ -6,14 +6,16 @@ export default {
     extend: {
       colors: {
         pokit: {
-          DEFAULT: "#ffcc00",
-          dark: "#e6b800",
+          DEFAULT: "var(--color-accent)",
+          dark: "var(--color-accent-dark)",
         },
+        accent: "var(--color-accent)",
+        "accent-dark": "var(--color-accent-dark)",
       },
       fontFamily: {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
     },
   },
-  plugins: [],
+  plugins: [require("tailwindcss-animate")],
 };

@@ -4,6 +4,15 @@
 
 :root {
   color-scheme: dark;
+  /* Theme foundation — overrideable for LCARS/RPI skins */
+  --color-accent: #ffcc00;
+  --color-accent-dark: #e6b800;
+  --color-bg: #0a0a0a;
+  --color-surface: #171717;
+  --color-surface-glass: rgba(23, 23, 23, 0.7);
+  --color-border: #262626;
+  --color-text: #f5f5f5;
+  --color-text-muted: #a3a3a3;
 }
 
 html,
@@ -13,7 +22,10 @@ body,
 }
 
 body {
-  @apply bg-neutral-950 text-neutral-100 antialiased;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   margin: 0;
 }
 

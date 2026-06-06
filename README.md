@@ -25,14 +25,26 @@ The BLE protocol is a clean-room reimplementation based on the excellent
 - A **secure context**: `http://localhost` (dev) or HTTPS (production).
 - Bluetooth enabled on the host.
 
-### Linux notes
+### Linux / Raspberry Pi notes
 Web Bluetooth on Linux uses BlueZ and may require enabling:
 
 ```
 chrome://flags/#enable-experimental-web-platform-features
 ```
 
-Ensure the `bluetooth` service is running (`systemctl status bluetooth`).
+Ensure the `bluetooth` service is running:
+
+```bash
+sudo systemctl enable --now bluetooth
+```
+
+On Raspberry Pi OS (Bookworm), use Chromium (not Firefox ESR). If the device chooser is empty, check that the Pokit is powered on and within range, then refresh the browser.
+
+For kiosk or headless use on a Pi, launch Chromium with:
+
+```bash
+chromium-browser --enable-features=WebBluetoothNewPermissionsBackend
+```
 
 ## Getting started
 
@@ -63,14 +75,17 @@ src/
     abstractService.ts  Base class (read/write/notify)
     statusService.ts / multimeterService.ts / dsoService.ts / loggerService.ts
     device.ts         PokitDevice facade
-  store/          Zustand state (deviceStore)
-  components/     UI primitives, ConnectBar, Readout, Waveform (uPlot)
+  store/          Zustand state
+    deviceStore.ts    Connection, reconnect, status, LED/torch
+    historyStore.ts   IndexedDB saved measurements
+    toastStore.ts     Toast notifications
+  components/     UI primitives, ConnectBar, Readout, Waveform (uPlot), Toast, HistoryDrawer
   views/          MultimeterView, OscilloscopeView, LoggerView, DeviceInfoView
   App.tsx         Tabbed shell
 ```
 
 The `pokit/` layer has no React dependency and is covered by unit tests in
-`src/pokit/codec.test.ts`.
+`src/pokit/codec.test.ts`, `src/lib/waveformMetrics.test.ts`, and `src/lib/format.test.ts`.
 
 ## Protocol summary
 
@@ -86,6 +101,14 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` and
 
 ## Status
 
-Protocol decoding and UI are implemented; hardware verification against a real
-Pokit Pro is the next step. DSO sample-packet reassembly and exact status-byte
-semantics may need tuning once tested on-device.
+Core features implemented and verified against a Pokit Pro ("Sparky").
+
+- Multimeter, DSO, and Logger views are functional with live BLE notifications.
+- Auto-reconnect, IndexedDB history, CSV export, and toast feedback are active.
+- CSS custom properties in `index.css` provide a theme foundation for future
+  LCARS-style skins and multi-instrument dashboards (Hantek, webcams, etc.).
+
+Known limitations:
+- Web Bluetooth is Chromium-only; Firefox/Safari will never work.
+- DSO sample reassembly relies on `numberOfSamples` from metadata; very large
+  buffers may stream across multiple notifications — validate on your device.
