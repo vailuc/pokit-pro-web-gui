@@ -7,7 +7,7 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 **No cloud services. No account required. No backend.** All communication occurs directly between your browser and the Pokit Pro over Bluetooth LE.
 
-The BLE protocol is an independent TypeScript implementation based on interoperability observations and the reference [**pcolby/dokit**](https://github.com/pcolby/dokit) (Qt/C++) project.
+The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
 
 ## Project Status
 
@@ -156,8 +156,8 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 
 ## Acknowledgements
 
-- [**pcolby/dokit**](https://github.com/pcolby/dokit) — Original Qt/C++ Pokit library that served as architectural reference.
-- **Pokit Innovations** — For the excellent Pokit Pro hardware.
+- [**pcolby/dokit**](https://github.com/pcolby/dokit) — Qt/C++ Pokit library that served as an architectural reference for protocol understanding. This project does not contain Dokit source code; it is an independent TypeScript implementation.
+- **Pokit Innovations** — For the Pokit Pro hardware.
 - [**uPlot**](https://github.com/leeoniya/uPlot) — Lightweight plotting library used for the oscilloscope.
 
 ## License
