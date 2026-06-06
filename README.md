@@ -34,19 +34,21 @@ Still under active development and protocol validation.
 
 ## Screenshots
 
-> Screenshots coming soon.
-
 ### Multimeter
-*(image placeholder)*
+
+![Multimeter view](docs/screenshots/multimeter.png)
 
 ### Oscilloscope
-*(image placeholder)*
+
+![Oscilloscope view](docs/screenshots/dso.png)
 
 ### Data Logger
-*(image placeholder)*
+
+![Data Logger view](docs/screenshots/datalogger.png)
 
 ### Device Information
-*(image placeholder)*
+
+![Device Information view](docs/screenshots/settings.png)
 
 ## Requirements
 
