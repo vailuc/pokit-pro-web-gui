@@ -85,7 +85,12 @@ export function LoggerView() {
           return next;
         });
       });
-    })().catch(() => {});
+    })().catch((err) => {
+      if (!cancelled) {
+        console.error("Logger subscription failed:", err);
+        toast.error(err instanceof Error ? err.message : "Logger setup failed");
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -98,8 +103,9 @@ export function LoggerView() {
     setLogging(true);
     try {
       await device.logger.startLogger({ mode, range, updateIntervalMs: intervalMs });
-    } catch {
+    } catch (err) {
       setLogging(false);
+      toast.error(err instanceof Error ? err.message : "Failed to start logger");
     }
   };
 

@@ -26,6 +26,10 @@ export class StatusService extends AbstractPokitService {
   /** Read static device characteristics (firmware, limits, MAC). */
   async readDeviceCharacteristics(): Promise<DeviceCharacteristics> {
     const view = await this.read(this.chars.deviceCharacteristics);
+    // fw(1+1) + maxVolt(2) + maxCurr(2) + maxRes(2) + maxSR(2) + bufSz(2) + caps(2) + mac(6) = 20 bytes
+    if (view.byteLength < 20) {
+      throw new Error(`Device characteristics too short: ${view.byteLength} bytes (need >= 20)`);
+    }
     const r = new ByteReader(view);
     const fwMajor = r.u8();
     const fwMinor = r.u8();

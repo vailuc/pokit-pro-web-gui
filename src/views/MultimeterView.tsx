@@ -108,7 +108,12 @@ export function MultimeterView() {
           }
         }
       });
-    })().catch(() => {});
+    })().catch((err) => {
+      if (!cancelled) {
+        console.error("Multimeter setup failed:", err);
+        toast.error(err instanceof Error ? err.message : "Meter setup failed");
+      }
+    });
 
     return () => {
       cancelled = true;

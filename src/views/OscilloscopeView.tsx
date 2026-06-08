@@ -82,7 +82,13 @@ export function OscilloscopeView() {
         setValues(bufferRef.current.values());
         if (bufferRef.current.isComplete) setRunning(false);
       });
-    })().catch(() => {});
+    })().catch((err) => {
+      if (!cancelled) {
+        console.error("DSO subscription failed:", err);
+        toast.error(err instanceof Error ? err.message : "DSO setup failed");
+        setRunning(false);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -92,6 +98,7 @@ export function OscilloscopeView() {
   }, [connected, device]);
 
   const start = async () => {
+    bufferRef.current = null;
     setValues([]);
     setRunning(true);
     pendingRestartRef.current = continuous;

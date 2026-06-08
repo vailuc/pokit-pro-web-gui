@@ -97,3 +97,64 @@ describe("LoggerService", () => {
     expect(u8(buf)[0]).toBe(LoggerCommand.Start);
   });
 });
+
+describe("ByteReader bounds checking", () => {
+  it("throws on u8 overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(0));
+    expect(() => r.u8()).toThrow("ByteReader overflow");
+  });
+
+  it("throws on u16 overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(1));
+    expect(() => r.u16()).toThrow("ByteReader overflow");
+  });
+
+  it("throws on u32 overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(3));
+    expect(() => r.u32()).toThrow("ByteReader overflow");
+  });
+
+  it("throws on i16 overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(1));
+    expect(() => r.i16()).toThrow("ByteReader overflow");
+  });
+
+  it("throws on f32 overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(3));
+    expect(() => r.f32()).toThrow("ByteReader overflow");
+  });
+
+  it("throws on bytes() overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(2));
+    expect(() => r.bytes(3)).toThrow("ByteReader overflow");
+  });
+
+  it("throws on skip() overflow", () => {
+    const r = new ByteReader(new ArrayBuffer(2));
+    expect(() => r.skip(3)).toThrow("ByteReader overflow");
+  });
+
+  it("does not throw when reading exactly to boundary", () => {
+    const buf = new ByteWriter().u8(1).u16(2).u32(3).toBuffer();
+    const r = new ByteReader(buf);
+    expect(() => { r.u8(); r.u16(); r.u32(); }).not.toThrow();
+    expect(r.remaining).toBe(0);
+  });
+});
+
+describe("Parser length guards", () => {
+  it("DsoService.parseMetadata throws on short packet", () => {
+    expect(() => DsoService.parseMetadata(new DataView(new ArrayBuffer(16))))
+      .toThrow("DSO metadata too short");
+  });
+
+  it("MultimeterService.parseReading throws on short packet", () => {
+    expect(() => MultimeterService.parseReading(new DataView(new ArrayBuffer(6))))
+      .toThrow("Meter reading too short");
+  });
+
+  it("LoggerService.parseMetadata throws on short packet", () => {
+    expect(() => LoggerService.parseMetadata(new DataView(new ArrayBuffer(16))))
+      .toThrow("Logger metadata too short");
+  });
+});

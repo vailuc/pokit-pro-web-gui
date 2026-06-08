@@ -51,6 +51,10 @@ export class DsoService extends AbstractPokitService {
   }
 
   static parseMetadata(view: DataView): DsoMetadata {
+    // status(1) + scale(4) + mode(1) + range(1) + window(4) + samples(2) + rate(4) = 17 bytes
+    if (view.byteLength < 17) {
+      throw new Error(`DSO metadata too short: ${view.byteLength} bytes (need >= 17)`);
+    }
     const r = new ByteReader(view);
     return {
       status: r.u8() as DsoStatus,

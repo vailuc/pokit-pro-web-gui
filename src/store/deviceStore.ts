@@ -53,6 +53,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   // React to connection drops: auto-reconnect unless the user asked to disconnect.
   device.connection.onConnectionChange((connected) => {
     if (connected) return;
+    if (statusUnsub) { try { void statusUnsub(); } catch { /* ignore */ } statusUnsub = null; }
     if (buttonUnsub) { try { void buttonUnsub(); } catch { /* ignore */ } buttonUnsub = null; }
     set({ characteristics: null, status: null });
     if (device.connection.wasIntentionalDisconnect) {
