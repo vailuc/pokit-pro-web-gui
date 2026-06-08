@@ -59,11 +59,20 @@ export function OscilloscopeView() {
     let cancelled = false;
 
     (async () => {
+      // Queue samples that arrive before the first metadata packet.
+      const preMetaQueue: number[][] = [];
+
       unsubMeta = await device.dso.onMetadata((m) => {
         if (cancelled) return;
         setMeta(m);
         if (!bufferRef.current) bufferRef.current = new DsoCaptureBuffer(m.numberOfSamples, m.scale);
         else bufferRef.current.reset(m.numberOfSamples, m.scale);
+        // Flush any samples that beat the metadata notification.
+        if (preMetaQueue.length > 0) {
+          for (const s of preMetaQueue) bufferRef.current.push(s);
+          preMetaQueue.length = 0;
+          setValues(bufferRef.current.values());
+        }
         if (m.status === DsoStatus.Done) {
           if (continuous && pendingRestartRef.current) {
             // Auto-restart for continuous mode.
@@ -77,7 +86,8 @@ export function OscilloscopeView() {
         }
       });
       unsubSamples = await device.dso.onSamples((samples) => {
-        if (cancelled || !bufferRef.current) return;
+        if (cancelled) return;
+        if (!bufferRef.current) { preMetaQueue.push(samples); return; }
         bufferRef.current.push(samples);
         setValues(bufferRef.current.values());
         if (bufferRef.current.isComplete) setRunning(false);
