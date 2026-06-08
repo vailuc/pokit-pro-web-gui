@@ -43,6 +43,7 @@ export function OscilloscopeView() {
   const bufferRef = useRef<DsoCaptureBuffer | null>(null);
   const pendingRestartRef = useRef(false);
   const preMetaQueueRef = useRef<number[][]>([]);
+  const captureGenRef = useRef(0);
 
   const isVoltage = mode === MeterMode.DcVoltage || mode === MeterMode.AcVoltage;
   const rangeTable = isVoltage ? PokitProRanges.voltage : PokitProRanges.current;
@@ -67,17 +68,19 @@ export function OscilloscopeView() {
 
       unsubMeta = await device.dso.onMetadata((m) => {
         if (cancelled) return;
+        const myGen = captureGenRef.current;
         setMeta(m);
         if (!bufferRef.current) bufferRef.current = new DsoCaptureBuffer(m.numberOfSamples, m.scale);
         else bufferRef.current.reset(m.numberOfSamples, m.scale);
-        // Flush any samples that beat the metadata notification.
+        // Flush any samples that beat the metadata notification (same generation only).
         if (preMetaQueue.length > 0) {
           for (const s of preMetaQueue) bufferRef.current.push(s);
           preMetaQueue.length = 0;
           setValues(bufferRef.current.values());
         }
         if (m.status === DsoStatus.Done) {
-          if (continuous && pendingRestartRef.current) {
+          bufferRef.current = null;
+          if (continuous && pendingRestartRef.current && myGen === captureGenRef.current) {
             // Auto-restart for continuous mode.
             pendingRestartRef.current = false;
             setTimeout(() => {
@@ -93,7 +96,10 @@ export function OscilloscopeView() {
         if (!bufferRef.current) { preMetaQueue.push(samples); return; }
         bufferRef.current.push(samples);
         setValues(bufferRef.current.values());
-        if (bufferRef.current.isComplete) setRunning(false);
+        if (bufferRef.current.isComplete) {
+          bufferRef.current = null;
+          setRunning(false);
+        }
       });
     })().catch((err) => {
       if (!cancelled) {
@@ -111,6 +117,7 @@ export function OscilloscopeView() {
   }, [connected, device]);
 
   const start = async () => {
+    captureGenRef.current += 1;
     bufferRef.current = null;
     preMetaQueueRef.current.length = 0;
     setValues([]);
