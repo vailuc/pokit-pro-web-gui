@@ -67,7 +67,7 @@ Still under active development and protocol validation.
 - **No iOS / iPadOS / Safari support** — Web Bluetooth is not available on Apple platforms.
 - **Browser permission prompts required** — Chromium will ask for Bluetooth access on first connect.
 - **Host OS Bluetooth stack** — Linux requires BlueZ; Windows and macOS generally work out of the box.
-- **DSO sample reassembly** — relies on `numberOfSamples` from metadata; very large buffers may stream across multiple notifications.
+- **DSO sample count capped at 4096** — the Pokit Pro firmware silently clamps `numberOfSamples` to 4096 regardless of what is requested. Values above this (8192, 16384) are accepted by the GATT write but the device returns 4096 samples, producing repeated identical waveforms. The sample-count selector is therefore limited to 256–4096.
 
 ### Linux / Raspberry Pi notes
 
