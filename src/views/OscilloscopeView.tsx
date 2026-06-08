@@ -42,6 +42,7 @@ export function OscilloscopeView() {
   const [continuous, setContinuous] = useState(false);
   const bufferRef = useRef<DsoCaptureBuffer | null>(null);
   const pendingRestartRef = useRef(false);
+  const preMetaQueueRef = useRef<number[][]>([]);
 
   const isVoltage = mode === MeterMode.DcVoltage || mode === MeterMode.AcVoltage;
   const rangeTable = isVoltage ? PokitProRanges.voltage : PokitProRanges.current;
@@ -60,7 +61,9 @@ export function OscilloscopeView() {
 
     (async () => {
       // Queue samples that arrive before the first metadata packet.
+      // Cleared on each new capture start via preMetaQueueRef.
       const preMetaQueue: number[][] = [];
+      preMetaQueueRef.current = preMetaQueue;
 
       unsubMeta = await device.dso.onMetadata((m) => {
         if (cancelled) return;
@@ -109,6 +112,7 @@ export function OscilloscopeView() {
 
   const start = async () => {
     bufferRef.current = null;
+    preMetaQueueRef.current.length = 0;
     setValues([]);
     setRunning(true);
     pendingRestartRef.current = continuous;
@@ -235,7 +239,7 @@ export function OscilloscopeView() {
           <Field label="Samples">
             <Select
               value={numSamples}
-              options={[256, 512, 1024, 2048, 4096, 8192, 16384].map((n) => ({ value: n, label: String(n) }))}
+              options={[256, 512, 1024, 2048, 4096].map((n) => ({ value: n, label: String(n) }))}
               onValueChange={(v) => setNumSamples(Number(v))}
               className="w-full"
             />
