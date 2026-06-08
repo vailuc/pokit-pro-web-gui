@@ -79,7 +79,6 @@ export function OscilloscopeView() {
           setValues(bufferRef.current.values());
         }
         if (m.status === DsoStatus.Done) {
-          bufferRef.current = null;
           if (continuous && pendingRestartRef.current && myGen === captureGenRef.current) {
             // Auto-restart for continuous mode.
             pendingRestartRef.current = false;
@@ -95,9 +94,9 @@ export function OscilloscopeView() {
         if (cancelled) return;
         if (!bufferRef.current) { preMetaQueue.push(samples); return; }
         bufferRef.current.push(samples);
-        setValues(bufferRef.current.values());
+        const snap = bufferRef.current.values();
+        setValues(snap);
         if (bufferRef.current.isComplete) {
-          bufferRef.current = null;
           setRunning(false);
         }
       });
