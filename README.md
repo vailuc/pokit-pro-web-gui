@@ -9,6 +9,22 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
 
+## ⚠️ Important Limitations
+
+### Web Bluetooth Oscilloscope Performance
+The oscilloscope mode has **significant performance limitations** due to Web Bluetooth API constraints:
+
+- **Sample Limit**: Automatically reduces to 2800 samples (from requested 4096+) to avoid stale data
+- **Notification Gaps**: Consistent 135-150ms delays between BLE packet delivery
+- **Platform Batching**: iOS/Android buffer BLE packets, causing timing gaps
+- **No Control**: Web Bluetooth doesn't expose connection parameters (MTU, interval)
+
+**Impact**: Beyond ~2700 samples, the device fills remaining buffer with stale/repeated data. The app detects this and automatically adjusts for best quality.
+
+**Future Solution**: A Python Bluetooth server could bypass these limitations entirely. See [PLAN.md](PLAN.md) for technical details.
+
+---
+
 ## Project Status
 
 Early alpha (v0.1.0).
@@ -16,7 +32,7 @@ Early alpha (v0.1.0).
 Core functionality implemented and verified:
 - BLE connection, pairing, and auto-reconnect
 - Multimeter live readings with HOLD/REL/MinMaxAvg
-- Oscilloscope capture with waveform metrics
+- Oscilloscope capture with waveform metrics (with limitations above)
 - Data logger with CSV export
 - IndexedDB measurement history
 

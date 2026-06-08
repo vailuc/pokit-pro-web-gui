@@ -119,7 +119,7 @@ export class DsoCaptureBuffer {
   }
 
   push(samples: number[]): void {
-    for (let i = 0; i < samples.length; i++) this.raw.push(samples[i]);
+    for (let i = 0; i < samples.length && this.raw.length < this.expected; i++) this.raw.push(samples[i]);
   }
 
   get isComplete(): boolean {

@@ -1,0 +1,6 @@
+# Pokit Pro Python Server Requirements
+# Install with: pip install -r requirements.txt
+
+bleak>=0.21.0
+websockets>=12.0
+asyncio-mqtt>=0.16.1

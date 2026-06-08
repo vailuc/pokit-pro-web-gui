@@ -90,14 +90,35 @@ export function OscilloscopeView() {
           }
         }
       });
+      // Throttle UI updates to rAF cadence to prevent BLE starvation
+      let rafPending = false;
       unsubSamples = await device.dso.onSamples((samples) => {
         if (cancelled) return;
         if (!bufferRef.current) { preMetaQueue.push(samples); return; }
+        
+        // Detect stale data boundary (~2700-2800 samples)
+        const currentCount = bufferRef.current.count;
+        if (currentCount > 2600 && currentCount < 2900 && numSamples > 3000) {
+          console.warn(`[DSO] Detected stale data boundary at sample ${currentCount}, reducing capture to 2800 samples`);
+          toast.info("Device limit detected: Reduced to 2800 samples for best quality");
+          setNumSamples(2800);
+        }
+        
         bufferRef.current.push(samples);
-        const snap = bufferRef.current.values();
-        setValues(snap);
-        if (bufferRef.current.isComplete) {
-          setRunning(false);
+        
+        // Throttle UI updates to rAF cadence
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(() => {
+            if (bufferRef.current && !cancelled) {
+              const snap = bufferRef.current.values();
+              setValues(snap);
+              if (bufferRef.current.isComplete) {
+                setRunning(false);
+              }
+            }
+            rafPending = false;
+          });
         }
       });
     })().catch((err) => {
