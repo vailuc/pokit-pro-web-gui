@@ -2,82 +2,37 @@
  * Base class for Pokit GATT services.
  *
  * Provides shared read/write/notify plumbing over a single primary service.
+ * Delegates to IPokitConnection which may be Web Bluetooth or WebSocket backend.
  * Subclasses implement encode/decode of their specific characteristics.
  */
 
-import type { PokitConnection } from "./connection";
+import type { IPokitConnection } from "./connection";
 
 export type NotifyHandler = (value: DataView) => void;
 
 export abstract class AbstractPokitService {
-  protected service: BluetoothRemoteGATTService | null = null;
-  private cachedGeneration = -1;
-  private readonly notifying = new Map<string, BluetoothRemoteGATTCharacteristic>();
-
   constructor(
-    protected readonly connection: PokitConnection,
-    protected readonly serviceUuid: BluetoothServiceUUID,
+    protected readonly connection: IPokitConnection,
+    protected readonly serviceUuid: string,
   ) {}
 
-  /**
-   * Resolve the underlying GATT service. Re-fetches whenever the connection
-   * generation changes (i.e. after a reconnect) so we never use stale handles.
-   */
-  protected async ensureService(): Promise<BluetoothRemoteGATTService> {
-    if (!this.service || this.cachedGeneration !== this.connection.generation) {
-      this.service = await this.connection.getService(this.serviceUuid);
-      this.cachedGeneration = this.connection.generation;
-    }
-    return this.service;
-  }
-
-  protected async getCharacteristic(
-    uuid: BluetoothCharacteristicUUID,
-  ): Promise<BluetoothRemoteGATTCharacteristic> {
-    const service = await this.ensureService();
-    return service.getCharacteristic(uuid);
-  }
-
-  protected async read(uuid: BluetoothCharacteristicUUID): Promise<DataView> {
-    const ch = await this.getCharacteristic(uuid);
-    return ch.readValue();
+  protected async read(charUuid: string): Promise<DataView> {
+    return this.connection.readCharacteristic(this.serviceUuid, charUuid);
   }
 
   protected async write(
-    uuid: BluetoothCharacteristicUUID,
+    charUuid: string,
     value: ArrayBuffer,
     withoutResponse = false,
   ): Promise<void> {
-    const ch = await this.getCharacteristic(uuid);
-    if (withoutResponse && ch.properties.writeWithoutResponse) {
-      await ch.writeValueWithoutResponse(value);
-    } else {
-      await ch.writeValueWithResponse(value);
-    }
+    return this.connection.writeCharacteristic(this.serviceUuid, charUuid, value, withoutResponse);
   }
 
   /** Subscribe to characteristic notifications; returns an unsubscribe fn. */
   protected async subscribe(
-    uuid: BluetoothCharacteristicUUID,
+    charUuid: string,
     handler: NotifyHandler,
   ): Promise<() => Promise<void>> {
-    const ch = await this.getCharacteristic(uuid);
-    const listener = (event: Event) => {
-      const target = event.target as BluetoothRemoteGATTCharacteristic;
-      if (target.value) handler(target.value);
-    };
-    ch.addEventListener("characteristicvaluechanged", listener);
-    await ch.startNotifications();
-    this.notifying.set(String(uuid), ch);
-
-    return async () => {
-      ch.removeEventListener("characteristicvaluechanged", listener);
-      try {
-        await ch.stopNotifications();
-      } catch {
-        /* device may already be gone */
-      }
-      this.notifying.delete(String(uuid));
-    };
+    return this.connection.subscribeCharacteristic(this.serviceUuid, charUuid, handler);
   }
 }

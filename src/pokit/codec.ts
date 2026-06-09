@@ -64,30 +64,53 @@ export class ByteReader {
   }
 
   u8(): number {
-    const v = this.view.getUint8(this.offset);
-    this.offset += 1;
-    return v;
+    if (this.offset + 1 > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need 1 byte at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
+    return this.view.getUint8(this.offset++);
   }
 
   u16(): number {
+    if (this.offset + 2 > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need 2 bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     const v = this.view.getUint16(this.offset, true);
     this.offset += 2;
     return v;
   }
 
   u32(): number {
+    if (this.offset + 4 > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need 4 bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     const v = this.view.getUint32(this.offset, true);
     this.offset += 4;
     return v;
   }
 
   i16(): number {
+    if (this.offset + 2 > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need 2 bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     const v = this.view.getInt16(this.offset, true);
     this.offset += 2;
     return v;
   }
 
   f32(): number {
+    if (this.offset + 4 > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need 4 bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     const v = this.view.getFloat32(this.offset, true);
     this.offset += 4;
     return v;
@@ -95,6 +118,11 @@ export class ByteReader {
 
   /** Read `count` raw bytes as a Uint8Array. */
   bytes(count: number): Uint8Array {
+    if (this.offset + count > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: need ${count} bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     const out = new Uint8Array(count);
     for (let i = 0; i < count; i++) out[i] = this.view.getUint8(this.offset + i);
     this.offset += count;
@@ -103,6 +131,11 @@ export class ByteReader {
 
   /** Skip `count` bytes. */
   skip(count: number): this {
+    if (this.offset + count > this.view.byteLength) {
+      throw new Error(
+        `ByteReader overflow: skip ${count} bytes at offset ${this.offset}, length ${this.view.byteLength}`
+      );
+    }
     this.offset += count;
     return this;
   }

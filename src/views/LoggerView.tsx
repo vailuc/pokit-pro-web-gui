@@ -11,6 +11,7 @@ import {
   MeterMode,
   PokitProRanges,
   formatSi,
+  isDsoPosition,
   modeLabel,
   unitForMode,
   type LoggerMetadata,
@@ -30,7 +31,7 @@ interface Sample {
 }
 
 export function LoggerView() {
-  const { device, connectionState } = useDeviceStore();
+  const { device, connectionState, status } = useDeviceStore();
   const connected = connectionState === "connected";
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
@@ -85,7 +86,12 @@ export function LoggerView() {
           return next;
         });
       });
-    })().catch(() => {});
+    })().catch((err) => {
+      if (!cancelled) {
+        console.error("Logger subscription failed:", err);
+        toast.error(err instanceof Error ? err.message : "Logger setup failed");
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -95,11 +101,22 @@ export function LoggerView() {
   }, [connected, device, intervalMs]);
 
   const start = async () => {
+    if (status && !isDsoPosition(status.status)) {
+      const pos = status.status;
+      if (pos === 0) {
+        toast.warning("Verify Switch");
+      } else {
+        toast.warning("Verify Switch — move to V position");
+      }
+      return;
+    }
+
     setLogging(true);
     try {
       await device.logger.startLogger({ mode, range, updateIntervalMs: intervalMs });
-    } catch {
+    } catch (err) {
       setLogging(false);
+      toast.error(err instanceof Error ? err.message : "Failed to start logger");
     }
   };
 

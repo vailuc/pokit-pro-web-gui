@@ -5,6 +5,10 @@ dist-ssr
 .DS_Store
 .vite
 coverage
+logs/
+
+# Server virtual environment
+server/venv/
 
 # Internal planning docs (keep local, not on GitHub)
 PLAN.md

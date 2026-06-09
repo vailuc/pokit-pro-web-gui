@@ -11,6 +11,32 @@ import {
 } from "./uuids";
 import { PokitProduct } from "./types";
 
+/** Shared contract implemented by both Web Bluetooth and WebSocket backends. */
+export interface IPokitConnection {
+  isConnected: boolean;
+  deviceName: string;
+  pokitProduct: PokitProduct;
+  generation: number;
+  wasIntentionalDisconnect: boolean;
+  canReconnect: boolean;
+  /** Status service UUID for the connected product (Pro vs Meter). */
+  statusServiceUuid: string;
+
+  requestAndConnect(): Promise<void>;
+  reconnect(): Promise<void>;
+  disconnect(): void;
+  onConnectionChange(listener: (connected: boolean) => void): () => void;
+
+  // GATT proxy methods (service + characteristic UUID required)
+  readCharacteristic(serviceUuid: string, charUuid: string): Promise<DataView>;
+  writeCharacteristic(serviceUuid: string, charUuid: string, value: ArrayBuffer, withoutResponse?: boolean): Promise<void>;
+  subscribeCharacteristic(
+    serviceUuid: string,
+    charUuid: string,
+    handler: (value: DataView) => void,
+  ): Promise<() => Promise<void>>;
+}
+
 export class WebBluetoothUnavailableError extends Error {
   constructor() {
     super(
@@ -148,6 +174,57 @@ export class PokitConnection {
     return this.product === PokitProduct.PokitPro
       ? StatusServiceUuids.pokitPro
       : StatusServiceUuids.pokitMeter;
+  }
+
+  // ── GATT proxy methods (used by AbstractPokitService) ─────────────────
+  /** Read a characteristic value. */
+  async readCharacteristic(serviceUuid: string, charUuid: string): Promise<DataView> {
+    const service = await this.getService(serviceUuid);
+    const ch = await service.getCharacteristic(charUuid);
+    return ch.readValue();
+  }
+
+  /** Write a characteristic value. */
+  async writeCharacteristic(
+    serviceUuid: string,
+    charUuid: string,
+    value: ArrayBuffer,
+    withoutResponse = false,
+  ): Promise<void> {
+    const service = await this.getService(serviceUuid);
+    const ch = await service.getCharacteristic(charUuid);
+    if (withoutResponse && ch.properties.writeWithoutResponse) {
+      await ch.writeValueWithoutResponse(value);
+    } else {
+      await ch.writeValueWithResponse(value);
+    }
+  }
+
+  /** Subscribe to characteristic notifications. */
+  async subscribeCharacteristic(
+    serviceUuid: string,
+    charUuid: string,
+    handler: (value: DataView) => void,
+  ): Promise<() => Promise<void>> {
+    const service = await this.getService(serviceUuid);
+    const ch = await service.getCharacteristic(charUuid);
+
+    const listener = (event: Event) => {
+      const target = event.target as BluetoothRemoteGATTCharacteristic;
+      if (target.value) handler(target.value);
+    };
+
+    ch.addEventListener("characteristicvaluechanged", listener);
+    await ch.startNotifications();
+
+    return async () => {
+      ch.removeEventListener("characteristicvaluechanged", listener);
+      try {
+        await ch.stopNotifications();
+      } catch {
+        /* device may already be gone */
+      }
+    };
   }
 
   disconnect(): void {

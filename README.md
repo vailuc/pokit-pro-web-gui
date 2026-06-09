@@ -9,6 +9,41 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
 
+## ⚠️ Important Limitations
+
+### Oscilloscope (DSO) — Known Limitations
+
+The Pokit Pro **does not support true continuous streaming** in any mode (this is a firmware limitation, not a Web Bluetooth issue). The official Pokit app achieves "continuous" by rapidly re-triggering single-shot captures with native Bluetooth APIs.
+
+**Web Bluetooth adds additional constraints:**
+
+- **Notification Gaps**: 135-150ms batching delays in Chromium's Web Bluetooth implementation
+- **No Connection Control**: Cannot set MTU or connection intervals (native apps can)
+- **Firmware Bug**: Beyond ~2700 samples, the device returns stale/repeated data (confirmed in Pokit Pro 1.6.0 changelog: "Fix: DSO sending invalid number of samples in case of BLE timeout")
+
+**Current Workaround:**
+- Requests for >3000 samples are automatically reduced to 2800
+- UI updates are throttled to `requestAnimationFrame` cadence
+- Continuous mode re-triggers single-shot captures
+
+**Dual Backend Architecture (in progress):**
+This codebase supports **two backends**:
+
+| Backend | Transport | DSO Performance | Use Case |
+|---------|-----------|----------------|----------|
+| **Web Bluetooth** (default) | Browser-native | Limited by 150ms gaps | Quick measurements, portability |
+| **Python Bridge** | WebSocket via `server/` | Native BLE speed | Lab bench, continuous monitoring |
+
+The **Python BLE bridge** (`server/pokit-server.py`) uses `bleak` for native Bluetooth access, bypassing Web Bluetooth's notification batching. It exposes the same Pokit protocol over WebSocket.
+
+### Multimeter — Works Great
+Multimeter mode is **not affected** by these limitations. Live readings work perfectly with Web Bluetooth because they use infrequent notifications (configurable interval, default ~100ms) rather than high-frequency streaming.
+
+### Data Logger — Status Unknown
+Logger mode has not been tested at high sample rates. It may work fine for slow intervals (>1s) but could show similar issues at high frequency.
+
+---
+
 ## Project Status
 
 Early alpha (v0.1.0).
@@ -16,7 +51,7 @@ Early alpha (v0.1.0).
 Core functionality implemented and verified:
 - BLE connection, pairing, and auto-reconnect
 - Multimeter live readings with HOLD/REL/MinMaxAvg
-- Oscilloscope capture with waveform metrics
+- Oscilloscope capture with waveform metrics (with limitations above)
 - Data logger with CSV export
 - IndexedDB measurement history
 
@@ -67,7 +102,7 @@ Still under active development and protocol validation.
 - **No iOS / iPadOS / Safari support** — Web Bluetooth is not available on Apple platforms.
 - **Browser permission prompts required** — Chromium will ask for Bluetooth access on first connect.
 - **Host OS Bluetooth stack** — Linux requires BlueZ; Windows and macOS generally work out of the box.
-- **DSO sample reassembly** — relies on `numberOfSamples` from metadata; very large buffers may stream across multiple notifications.
+- **DSO sample count capped at 4096** — the Pokit Pro firmware silently clamps `numberOfSamples` to 4096 regardless of what is requested. Values above this (8192, 16384) are accepted by the GATT write but the device returns 4096 samples, producing repeated identical waveforms. The sample-count selector is therefore limited to 256–4096.
 
 ### Linux / Raspberry Pi notes
 

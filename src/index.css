@@ -37,3 +37,8 @@ body {
 .u-axis {
   color: #a3a3a3;
 }
+
+@keyframes mismatchFlash {
+  0%, 100% { border-color: rgba(250, 204, 21, 0.6); color: #fde047; }
+  50% { border-color: rgba(59, 130, 246, 0.6); color: #93c5fd; }
+}

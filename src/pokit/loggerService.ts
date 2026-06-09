@@ -10,7 +10,7 @@
 
 import { AbstractPokitService } from "./abstractService";
 import { ByteReader, ByteWriter } from "./codec";
-import type { PokitConnection } from "./connection";
+import type { IPokitConnection } from "./connection";
 import { LoggerServiceUuids } from "./uuids";
 import {
   LoggerCommand,
@@ -29,7 +29,7 @@ export interface LoggerSettings {
 }
 
 export class LoggerService extends AbstractPokitService {
-  constructor(connection: PokitConnection) {
+  constructor(connection: IPokitConnection) {
     super(connection, LoggerServiceUuids.service);
   }
 
@@ -49,6 +49,10 @@ export class LoggerService extends AbstractPokitService {
   }
 
   static parseMetadata(view: DataView): LoggerMetadata {
+    // status(1) + scale(4) + mode(1) + range(1) + interval(4) + samples(2) + timestamp(4) = 17 bytes
+    if (view.byteLength < 17) {
+      throw new Error(`Logger metadata too short: ${view.byteLength} bytes (need >= 17)`);
+    }
     const r = new ByteReader(view);
     return {
       status: r.u8() as LoggerStatus,

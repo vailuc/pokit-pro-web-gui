@@ -1,5 +1,6 @@
-import { Bluetooth, BluetoothConnected, Flashlight, BatteryFull, BatteryLow, History } from "lucide-react";
+import { Bluetooth, BluetoothConnected, Flashlight, BatteryFull, BatteryLow, History, Server } from "lucide-react";
 import { Button } from "./ui/Button";
+import { SwitchIndicator } from "./SwitchIndicator";
 import { useDeviceStore } from "@/store/deviceStore";
 import { batteryPercent } from "@/pokit";
 
@@ -14,9 +15,12 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
     status,
     torchOn,
     error,
+    useBridge,
+    manualOverride,
     connect,
     disconnect,
     toggleTorch,
+    setUseBridge,
   } = useDeviceStore();
 
   const connected = connectionState === "connected";
@@ -38,14 +42,29 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
                 ? "Web Bluetooth unavailable — use Chromium"
                 : connectionState === "connecting"
                   ? "Connecting…"
-                  : connected
-                    ? "Connected"
-                    : "Disconnected"}
+                  : connectionState === "scanning"
+                    ? "Scanning for Pokit…"
+                    : connected
+                      ? "Connected"
+                      : "Disconnected"}
+              {useBridge && !connected && connectionState !== "scanning" && " · Bridge"}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {!connected && (
+            <Button
+              variant="toggle"
+              size="sm"
+              active={useBridge}
+              onClick={() => setUseBridge(!useBridge)}
+              title={useBridge ? "Using Python BLE Bridge" : "Using Web Bluetooth"}
+            >
+              <Server size={16} />
+            </Button>
+          )}
+
           {connected && pct !== null && (
             <div className="flex items-center gap-1 text-sm text-neutral-300">
               {pct < 25 ? (
@@ -55,6 +74,13 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
               )}
               <span className="tabular-nums">{pct}%</span>
             </div>
+          )}
+
+          {connected && status && (
+            <SwitchIndicator
+              status={status.status}
+              manualOverride={manualOverride}
+            />
           )}
 
           {connected && (
@@ -83,7 +109,7 @@ export function ConnectBar({ onOpenHistory }: ConnectBarProps) {
               variant="primary"
               size="sm"
               onClick={connect}
-              disabled={connectionState === "unsupported" || connectionState === "connecting"}
+              disabled={connectionState === "unsupported" || connectionState === "connecting" || connectionState === "scanning"}
             >
               Connect
             </Button>

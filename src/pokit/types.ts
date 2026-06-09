@@ -44,6 +44,35 @@ export enum DeviceStatusCode {
   LoggerModeSampling = 10,
 }
 
+/** Map DeviceStatusCode to physical switch position (V | A | Ω | idle). */
+export function getSwitchPosition(code: DeviceStatusCode): "V" | "A" | "Ω" | "idle" | "logger" {
+  switch (code) {
+    case DeviceStatusCode.Idle:
+      return "idle";
+    case DeviceStatusCode.MultimeterDcVoltage:
+    case DeviceStatusCode.MultimeterAcVoltage:
+    case DeviceStatusCode.DsoModeSampling:
+      return "V";
+    case DeviceStatusCode.MultimeterDcCurrent:
+    case DeviceStatusCode.MultimeterAcCurrent:
+      return "A";
+    case DeviceStatusCode.MultimeterResistance:
+    case DeviceStatusCode.MultimeterDiode:
+    case DeviceStatusCode.MultimeterContinuity:
+    case DeviceStatusCode.MultimeterTemperature:
+      return "Ω";
+    case DeviceStatusCode.LoggerModeSampling:
+      return "logger";
+    default:
+      return "idle";
+  }
+}
+
+/** True if the switch is on the V position (includes DSO and Logger). */
+export function isDsoPosition(code: DeviceStatusCode): boolean {
+  return getSwitchPosition(code) === "V" || getSwitchPosition(code) === "logger";
+}
+
 export enum BatteryStatus {
   Low = 0,
   Good = 1,
@@ -130,6 +159,32 @@ export const PokitProRanges = {
   ] as RangeOption[],
 } as const;
 
+export const DsoRanges = {
+  voltage: [
+    { value: 0, label: "10 mV", max: 0.01 },
+    { value: 1, label: "50 mV", max: 0.05 },
+    { value: 2, label: "250 mV", max: 0.25 },
+    { value: 3, label: "1 V", max: 1 },
+    { value: 4, label: "2 V", max: 2 },
+    { value: 5, label: "10 V", max: 10 },
+    { value: 6, label: "30 V", max: 30 },
+    { value: 7, label: "60 V", max: 60 },
+    { value: 8, label: "125 V", max: 125 },
+    { value: 9, label: "200 V", max: 200 },
+  ] as RangeOption[],
+  current: [
+    { value: 0, label: "10 µA", max: 10e-6 },
+    { value: 1, label: "100 µA", max: 100e-6 },
+    { value: 2, label: "500 µA", max: 0.0005 },
+    { value: 3, label: "2 mA", max: 0.002 },
+    { value: 4, label: "10 mA", max: 0.01 },
+    { value: 5, label: "125 mA", max: 0.125 },
+    { value: 6, label: "300 mA", max: 0.3 },
+    { value: 7, label: "1 A", max: 1 },
+    { value: 8, label: "2 A", max: 2 },
+  ] as RangeOption[],
+} as const;
+
 export const AUTO_RANGE_OPTION: RangeOption = {
   value: AUTO_RANGE,
   label: "Auto",
@@ -149,6 +204,20 @@ export function rangesForMode(mode: MeterMode): RangeOption[] {
       return PokitProRanges.resistance;
     case MeterMode.Capacitance:
       return PokitProRanges.capacitance;
+    default:
+      return [];
+  }
+}
+
+/** Returns the DSO range table appropriate for a measurement mode. */
+export function dsoRangesForMode(mode: MeterMode): RangeOption[] {
+  switch (mode) {
+    case MeterMode.DcVoltage:
+    case MeterMode.AcVoltage:
+      return DsoRanges.voltage;
+    case MeterMode.DcCurrent:
+    case MeterMode.AcCurrent:
+      return DsoRanges.current;
     default:
       return [];
   }

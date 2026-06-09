@@ -12,23 +12,22 @@ import {
   MeterMode,
   MeterStatus,
   formatSi,
+  getSwitchPosition,
   modeLabel,
   rangesForMode,
   unitForMode,
   type MeterReading,
 } from "@/pokit";
 
-const MODES: MeterMode[] = [
-  MeterMode.DcVoltage,
-  MeterMode.AcVoltage,
-  MeterMode.DcCurrent,
-  MeterMode.AcCurrent,
-  MeterMode.Resistance,
-  MeterMode.Continuity,
-  MeterMode.Diode,
-  MeterMode.Temperature,
-  MeterMode.Capacitance,
-];
+const V_MODES: MeterMode[] = [MeterMode.DcVoltage, MeterMode.AcVoltage];
+const A_MODES: MeterMode[] = [MeterMode.DcCurrent, MeterMode.AcCurrent];
+const OHM_MODES: MeterMode[] = [MeterMode.Resistance, MeterMode.Diode, MeterMode.Continuity, MeterMode.Temperature, MeterMode.Capacitance];
+
+function modeBank(mode: MeterMode): "V" | "A" | "Ω" {
+  if (V_MODES.includes(mode)) return "V";
+  if (A_MODES.includes(mode)) return "A";
+  return "Ω";
+}
 
 interface Stats {
   min: number;
@@ -37,8 +36,14 @@ interface Stats {
   count: number;
 }
 
+interface LastModes {
+  V: MeterMode;
+  A: MeterMode;
+  Ω: MeterMode;
+}
+
 export function MultimeterView() {
-  const { device, connectionState, setLastMeterReading } = useDeviceStore();
+  const { device, connectionState, status, autoFollowSwitch, setManualOverride, setLastMeterReading } = useDeviceStore();
   const connected = connectionState === "connected";
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
@@ -51,6 +56,17 @@ export function MultimeterView() {
   const relRef = useRef<number | null>(null);
   const [stats, setStats] = useState<Stats>({ min: Infinity, max: -Infinity, avg: 0, count: 0 });
   const lastShortRef = useRef(false);
+
+  // Track last-used mode per switch position.
+  const [lastModes, setLastModes] = useState<LastModes>({
+    V: MeterMode.DcVoltage,
+    A: MeterMode.DcCurrent,
+    Ω: MeterMode.Resistance,
+  });
+
+  const prevSwitchRef = useRef<string | null>(null);
+
+  const switchPos = status ? getSwitchPosition(status.status) : null;
 
   const rangeOptions = useMemo(() => {
     const ranges = rangesForMode(mode);
@@ -81,34 +97,56 @@ export function MultimeterView() {
     let cancelled = false;
 
     (async () => {
-      await device.multimeter.setSettings({ mode, range, updateIntervalMs: intervalMs });
-      unsub = await device.multimeter.onReading((r) => {
-        if (cancelled) return;
-        setLastMeterReading(r);
-        if (!hold) {
-          setReading(r);
-          // Update running stats.
-          if (r.status !== MeterStatus.Error && mode !== MeterMode.Continuity) {
-            setStats((prev) => {
-              const n = prev.count + 1;
-              const v = relRef.current !== null ? r.value - relRef.current : r.value;
-              return {
-                min: Math.min(prev.min, v),
-                max: Math.max(prev.max, v),
-                avg: (prev.avg * prev.count + v) / n,
-                count: n,
-              };
-            });
-          }
-          // Continuity beep.
-          if (mode === MeterMode.Continuity) {
-            const isShort = r.status !== MeterStatus.AutoRangeOn;
-            if (isShort && !lastShortRef.current) beep();
-            lastShortRef.current = isShort;
-          }
+      // Retry subscribe up to 3 times with backoff.
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          unsub = await device.multimeter.onReading((r) => {
+            if (cancelled) return;
+            setLastMeterReading(r);
+            if (!hold) {
+              setReading(r);
+              if (r.status !== MeterStatus.Error && mode !== MeterMode.Continuity) {
+                setStats((prev) => {
+                  const n = prev.count + 1;
+                  const v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  return {
+                    min: Math.min(prev.min, v),
+                    max: Math.max(prev.max, v),
+                    avg: (prev.avg * prev.count + v) / n,
+                    count: n,
+                  };
+                });
+              }
+              if (mode === MeterMode.Continuity) {
+                const isShort = r.status !== MeterStatus.AutoRangeOn;
+                if (isShort && !lastShortRef.current) beep();
+                lastShortRef.current = isShort;
+              }
+            }
+          });
+          break;
+        } catch (e) {
+          if (attempt === 3) throw e;
+          await new Promise((r) => setTimeout(r, 500 * attempt));
         }
-      });
-    })().catch(() => {});
+      }
+
+      try {
+        await device.multimeter.setSettings({ mode, range, updateIntervalMs: intervalMs });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("0x80")) {
+          console.warn("[Multimeter] Settings rejected (0x80): switch position mismatch");
+        } else {
+          throw err;
+        }
+      }
+    })().catch((err) => {
+      if (!cancelled) {
+        console.error("Multimeter setup failed:", err);
+        toast.error(err instanceof Error ? err.message : "Meter setup failed");
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -142,6 +180,33 @@ export function MultimeterView() {
     ];
   })();
 
+  // Auto-follow: only trigger when switch position CHANGES, not on every status update.
+  useEffect(() => {
+    if (!connected || !status || !autoFollowSwitch) return;
+    const pos = getSwitchPosition(status.status);
+    if (pos === "idle" || pos === "logger") return;
+
+    if (prevSwitchRef.current !== pos) {
+      prevSwitchRef.current = pos;
+      const target = lastModes[pos as keyof LastModes];
+      if (mode !== target) {
+        setMode(target);
+        setRange(AUTO_RANGE_OPTION.value);
+        setManualOverride(false);
+      }
+    }
+  }, [connected, status, autoFollowSwitch, lastModes, mode, setManualOverride]);
+
+  const handleModeClick = (m: MeterMode) => {
+    const bank = modeBank(m);
+    setLastModes((prev) => ({ ...prev, [bank]: m }));
+    if (bank !== switchPos && switchPos !== null && switchPos !== "idle" && switchPos !== "logger") {
+      setManualOverride(true);
+    }
+    setMode(m);
+    setRange(AUTO_RANGE_OPTION.value);
+  };
+
   const handleRel = () => {
     if (rel) {
       setRel(false);
@@ -165,6 +230,11 @@ export function MultimeterView() {
     toast.success("Saved to history");
   };
 
+  const bankActive = (bank: "V" | "A" | "Ω") => {
+    if (!switchPos || switchPos === "idle" || switchPos === "logger") return false;
+    return switchPos === bank;
+  };
+
   return (
     <div className="grid gap-4">
       {/* Stats strip */}
@@ -181,17 +251,14 @@ export function MultimeterView() {
 
       <Card className="relative">
         <CardContent>
-          {/* Range badge */}
           <div className="absolute right-4 top-4 rounded-full bg-neutral-800 px-2.5 py-0.5 text-xs font-medium text-neutral-300">
             {currentRangeLabel}
           </div>
-          {/* HOLD badge */}
           {hold && (
             <div className="absolute left-4 top-4 rounded-full bg-amber-600/80 px-2.5 py-0.5 text-xs font-bold text-white">
               HOLD
             </div>
           )}
-          {/* REL badge */}
           {rel && (
             <div className="absolute left-4 top-10 rounded-full bg-blue-600/80 px-2.5 py-0.5 text-xs font-bold text-white">
               REL
@@ -228,26 +295,30 @@ export function MultimeterView() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Mode</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {MODES.map((m) => (
-            <Button
-              key={m}
-              size="sm"
-              active={mode === m}
-              onClick={() => {
-                setMode(m);
-                setRange(AUTO_RANGE_OPTION.value);
-              }}
-            >
-              {modeLabel(m)}
-            </Button>
-          ))}
-        </CardContent>
-      </Card>
+      {/* 3 switch-position banks */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <ModeBank
+          title="V"
+          modes={V_MODES}
+          active={bankActive("V")}
+          currentMode={mode}
+          onSelect={handleModeClick}
+        />
+        <ModeBank
+          title="A"
+          modes={A_MODES}
+          active={bankActive("A")}
+          currentMode={mode}
+          onSelect={handleModeClick}
+        />
+        <ModeBank
+          title="Ω"
+          modes={OHM_MODES}
+          active={bankActive("Ω")}
+          currentMode={mode}
+          onSelect={handleModeClick}
+        />
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -286,5 +357,48 @@ export function MultimeterView() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function ModeBank({
+  title,
+  modes,
+  active,
+  currentMode,
+  onSelect,
+}: {
+  title: string;
+  modes: MeterMode[];
+  active: boolean;
+  currentMode: MeterMode;
+  onSelect: (m: MeterMode) => void;
+}) {
+  return (
+    <Card
+      className={[
+        "transition-colors",
+        active
+          ? "border-teal-500/50 bg-teal-950/10"
+          : "border-neutral-800 opacity-60",
+      ].join(" ")}
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className={active ? "text-teal-400" : "text-neutral-500"}>
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        {modes.map((m) => (
+          <Button
+            key={m}
+            size="sm"
+            active={currentMode === m}
+            onClick={() => onSelect(m)}
+          >
+            {modeLabel(m)}
+          </Button>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
