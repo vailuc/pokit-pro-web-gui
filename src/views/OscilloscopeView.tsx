@@ -353,9 +353,15 @@ export function OscilloscopeView() {
       unsubSamples = await device.dso.onSamples((samples) => {
         if (cancelled) return;
         const receiveGen = startGenRef.current;
-        lastPacketTimeRef.current = Date.now();
         
-        console.log(`[DSO] Samples: received=${samples.length}, gen=${receiveGen}, startGen=${startGenRef.current}`);
+        // Drop stale packets from previous capture session
+        if (receiveGen !== captureGenRef.current) {
+          console.log(`[DSO] Stale packet dropped: gen=${receiveGen}, current=${captureGenRef.current}`);
+          return;
+        }
+        
+        lastPacketTimeRef.current = Date.now();
+        console.log(`[DSO] Samples: received=${samples.length}, gen=${receiveGen}`);
 
         // Event-driven: Trigger next capture immediately on first packet arrival
         samplesReceivedRef.current += samples.length;
@@ -442,6 +448,10 @@ export function OscilloscopeView() {
       cancelled = true;
       void unsubMeta?.();
       void unsubSamples?.();
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = null;
+      }
     };
   }, [connected, device]);
 
@@ -498,11 +508,8 @@ export function OscilloscopeView() {
       bufferRef.current = null;
       inFlightRef.current = [];
       setValues([]);
-      samplesReceivedRef.current = 0;
       console.log('[DSO] === START ===');
     }
-    // Clear the overlap trigger flag so we can fire again
-    pendingRestartRef.current = false;
     setRunning(true);
 
     // Use effective settings (calculated from window time in continuous mode).
