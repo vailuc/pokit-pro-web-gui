@@ -55,8 +55,7 @@ export function OscilloscopeView() {
   const preMetaQueueRef = useRef<{ gen: number; samples: number[] }[]>([]);
   const captureGenRef = useRef(0);
   const startGenRef = useRef(0); // Generation at which current capture started
-  // Reserved for scrolling window feature:
-  // const timeOffsetRef = useRef(0); // Time offset for continuous scrolling window
+  const captureStartTimeRef = useRef<number>(0); // Timestamp when current capture started (for smooth scroll)
 
   // Hidden continuous: internally chunk large single captures
   const hiddenContinuousRef = useRef(false);
@@ -126,19 +125,31 @@ export function OscilloscopeView() {
     return values.slice(start, end);
   }, [values, running, displaySize, displayDelaySamples, continuous]);
 
+  // Smooth scrolling: update display at 30fps during continuous run
+  // Balances smooth animation vs UI responsiveness (stop button must work!)
+  const [, tickDisplay] = useState(0);
+  useEffect(() => {
+    if (!continuous || !running) return;
+    const interval = setInterval(() => tickDisplay(v => v + 1), 33); // 30fps ~33ms
+    return () => clearInterval(interval);
+  }, [continuous, running]);
+
   const displayXs = useMemo(() => {
     if (displaySize === 0) return xs;
     const dt = 1000 / (sampleRate || 1);
     // For continuous rolling window, compute time from the END (scrolling right to left)
     if (continuous && running) {
-      const endTime = values.length * dt;
+      // Smooth scrolling: use actual elapsed time since capture started, not sample count
+      // This gives ~30fps animation even when samples only arrive every ~240ms
+      const elapsedMs = Date.now() - captureStartTimeRef.current;
+      const endTime = Math.max(values.length * dt, elapsedMs);
       return Array.from({ length: displayValues.length }, (_, i) => 
         endTime - (displayValues.length - 1 - i) * dt
       );
     }
     // Default: contiguous time from 0
     return Array.from({ length: displayValues.length }, (_, i) => i * dt);
-  }, [running, displaySize, displayValues.length, sampleRate, continuous, values.length]);
+  }, [running, displaySize, displayValues.length, sampleRate, continuous, values.length, tickDisplay]);
 
   // REL (relative) mode: subtract baseline from trace to see small deviations
   const [relActive, setRelActive] = useState(false);
@@ -402,6 +413,7 @@ export function OscilloscopeView() {
 
     captureGenRef.current += 1;
     startGenRef.current = captureGenRef.current;
+    captureStartTimeRef.current = Date.now(); // Reset time origin for smooth scroll
     preMetaQueueRef.current.length = 0;
 
     // Only clear plot/buffer on user-initiated start, not on auto-restart

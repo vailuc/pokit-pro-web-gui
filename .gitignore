@@ -11,6 +11,16 @@ logs/
 server/venv/
 
 # Internal planning docs (keep local, not on GitHub)
+# AI-generated docs (exclude from git)
+docs/aggro-polling.md
+docs/PR-review-action-items.md
+docs/squashing.md
+docs/test.md
+
+# Planning docs we created (tracked normally):
+# docs/RIPER-progress.md
+# docs/plan-*.md
+
 PLAN.md
 PLAN-REVIEW.md
 UX_PLAN.md
