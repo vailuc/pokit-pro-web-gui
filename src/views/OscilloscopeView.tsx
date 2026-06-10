@@ -599,7 +599,7 @@ export function OscilloscopeView() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
       <Card className="relative">
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Waveform</CardTitle>

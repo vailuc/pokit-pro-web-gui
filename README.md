@@ -128,6 +128,8 @@ chromium-browser --enable-features=WebBluetoothNewPermissionsBackend
 
 ## Getting started
 
+### Quick Start (Web Bluetooth — default)
+
 ```bash
 git clone https://github.com/vailuc/pokit-pro-web-gui.git
 cd pokit-pro-web-gui
@@ -137,6 +139,22 @@ npm run dev
 
 Open the printed `http://localhost:5173`, click **Connect**, and choose your Pokit device from the Chromium device chooser.
 
+### Python Bridge Mode (better DSO performance)
+
+For continuous oscilloscope monitoring without Web Bluetooth's ~150ms notification gaps, use the Python BLE bridge:
+
+```bash
+# One-command launcher (starts both bridge + frontend)
+cd server
+./launch-dev.sh
+```
+
+This starts:
+- **BLE Bridge** on `ws://localhost:8765` (Python backend with native Bluetooth)
+- **Vite Frontend** on `http://localhost:5173`
+
+Then in the browser, click **Settings** → toggle **Use Python Bridge** before connecting.
+
 ## Scripts
 
 | Script | Purpose |
@@ -145,6 +163,7 @@ Open the printed `http://localhost:5173`, click **Connect**, and choose your Pok
 | `npm run build` | Type-check and build for production |
 | `npm run preview` | Preview the production build |
 | `npm test` | Run unit tests (Vitest) |
+| `server/launch-dev.sh` | Start Python bridge + Vite together (dev stack) |
 
 ## Architecture
 
