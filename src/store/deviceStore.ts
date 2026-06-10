@@ -203,7 +203,11 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
           error: message,
         });
         if (!/cancelled|user gesture|chooser/i.test(message)) {
-          toast.error(message);
+          if (useBridge && /websocket|failed|refused/i.test(message)) {
+            toast.error("Python Bridge not running. Start it with: python server/pokit_server.py");
+          } else {
+            toast.error(message);
+          }
         }
       }
     },

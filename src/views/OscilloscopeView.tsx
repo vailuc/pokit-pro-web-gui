@@ -32,7 +32,7 @@ const DSO_MODES = [
 ];
 
 export function OscilloscopeView() {
-  const { device, connectionState, characteristics, status } = useDeviceStore();
+  const { device, connectionState, characteristics, status, useBridge } = useDeviceStore();
   const connected = connectionState === "connected";
   const deviceMac = characteristics?.macAddress || "default";
 
@@ -303,10 +303,17 @@ export function OscilloscopeView() {
           rafPending = true;
           requestAnimationFrame(() => {
             if (bufferRef.current && !cancelled && receiveGen === startGenRef.current) {
-              const snap = bufferRef.current.values();
-              setValues(snap);
-              if (bufferRef.current.isComplete) {
+              if (bufferRef.current.isStale) {
+                console.warn(`[DSO] Buffer stalled at ${bufferRef.current.count}/${bufferRef.current["expected"]} samples — packet likely dropped`);
+                toast.warning("Capture stalled — packet dropped. Try continuous mode or fewer samples.");
                 setRunning(false);
+                bufferRef.current = null;
+              } else {
+                const snap = bufferRef.current.values();
+                setValues(snap);
+                if (bufferRef.current.isComplete) {
+                  setRunning(false);
+                }
               }
             }
             rafPending = false;
@@ -556,7 +563,7 @@ export function OscilloscopeView() {
           <Field label={`Samples${continuous ? " (locked to 256 in continuous)" : ""}`}>
             <Select
               value={numSamples}
-              options={[256, 512, 1024, 2048, 4096].map((n) => ({ value: n, label: String(n) }))}
+              options={(useBridge ? [256, 512, 1024, 2048, 4096] : [256, 512, 1024, 2048]).map((n) => ({ value: n, label: String(n) }))}
               onValueChange={(v) => setNumSamples(Number(v))}
               disabled={continuous}
               className="w-full"
