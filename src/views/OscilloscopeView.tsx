@@ -66,6 +66,7 @@ export function OscilloscopeView() {
   const hiddenContinuousRef = useRef(false);
   const targetSamplesRef = useRef(0);
   const chunkSizeRef = useRef(0);
+  const isStartingRef = useRef(false); // Lockout to prevent overlapping startDso command writes
 
   // Overlapping capture: multiple in-flight captures for smooth scrolling
   interface InFlightCapture {
@@ -142,9 +143,13 @@ export function OscilloscopeView() {
     return () => clearInterval(interval);
   }, [continuous, running, displaySize, sampleRate]);
 
-  // Stall guard: Disabled - was causing runaway restarts
-  // The event-driven trigger and timer fallback are sufficient
-  // useEffect(() => { ... }, [continuous, running]);
+  // Stall guard: DISABLED - See Todo #11
+  // Was causing runaway restarts because lastPacketTimeRef initialized to 0
+  // caused immediate "stall detected" on first check. Could revisit with:
+  // - Proper initialization to Date.now()
+  // - Longer timeout (1000ms+)  
+  // - Only trigger after N consecutive stalled captures
+  // For now, event-driven trigger + timer fallback are sufficient.
 
   const displayValues = useMemo(() => {
     if (!running) return values; // When stopped, show ALL accumulated data
@@ -317,8 +322,10 @@ export function OscilloscopeView() {
           if (continuousRef.current) {
             // Timer fallback only if event-driven didn't fire (rare)
             if (!pendingRestartRef.current) {
+              pendingRestartRef.current = true; // Mark as pending restart
               console.log('[DSO] Fallback restart in 200ms');
               const delay = Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS);
+              if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
               restartTimeoutRef.current = setTimeout(() => {
                 restartTimeoutRef.current = null;
                 if (!cancelled && continuousRef.current) {
@@ -354,18 +361,19 @@ export function OscilloscopeView() {
         samplesReceivedRef.current += samples.length;
         const expected = effectiveNumSamplesRef.current;
         
-        // Event-driven trigger: restart at 50% completion for faster rate
+        // Event-driven trigger: restart at 90% completion (let capture nearly finish)
         if (continuousRef.current && !pendingRestartRef.current) {
-          const threshold = expected * 0.5;
-          if (samplesReceivedRef.current > threshold) {
+          const threshold = expected * 0.9;  // 90% - wait for capture to complete
+          if (samplesReceivedRef.current >= threshold) {
             pendingRestartRef.current = true;
-            console.log(`[DSO] Trigger @ ${samplesReceivedRef.current}/${expected}, restart in 100ms`);
-            setTimeout(() => {
-              console.log(`[DSO] Executing restart, gen=${captureGenRef.current}`);
+            console.log(`[DSO] Trigger @ ${samplesReceivedRef.current}/${expected}, restart in 200ms`);
+            if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+            restartTimeoutRef.current = setTimeout(() => {
+              restartTimeoutRef.current = null;
               if (!cancelled && continuousRef.current) {
                 void start(true);
               }
-            }, 100);
+            }, 200);
           }
         }
 
@@ -464,10 +472,16 @@ export function OscilloscopeView() {
       console.log(`[DSO] Guard passed (pos=${freshPos ?? "null"})`);
     }
 
-    // Prevent overlapping restarts
-    if (pendingRestartRef.current && autoRestart) {
-      console.log('[DSO] Skip duplicate restart');
+    // Prevent overlapping startDso commands from racing (caveat #1)
+    if (isStartingRef.current) {
+      console.log('[DSO] Skip: startDso already in flight');
       return;
+    }
+
+    // Clear any pending scheduled restarts immediately
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
     }
     
     console.log(`[DSO] start() called, autoRestart=${autoRestart}, continuous=${continuousRef.current}`);
@@ -525,6 +539,7 @@ export function OscilloscopeView() {
 
     const safeWindowMs = Math.max(reqWindow, Math.round(reqSamples / 200));
     console.log(`[DSO] startDso: ${samplesToRequest} samples`);
+    isStartingRef.current = true;
     try {
       await device.dso.startDso({
         command,
@@ -542,8 +557,12 @@ export function OscilloscopeView() {
         toast.error(`Sampling window too short for ${reqSamples} samples. Increase window or reduce samples.`);
       }
       setRunning(false);
-      pendingRestartRef.current = false;
       hiddenContinuousRef.current = false;
+    } finally {
+      isStartingRef.current = false;
+      if (!hiddenContinuousRef.current) {
+        pendingRestartRef.current = false;
+      }
     }
   };
 
