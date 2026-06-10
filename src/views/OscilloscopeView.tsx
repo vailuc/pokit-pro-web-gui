@@ -55,7 +55,8 @@ export function OscilloscopeView() {
   const preMetaQueueRef = useRef<{ gen: number; samples: number[] }[]>([]);
   const captureGenRef = useRef(0);
   const startGenRef = useRef(0); // Generation at which current capture started
-  const captureStartTimeRef = useRef<number>(0); // Timestamp when current capture started (for smooth scroll)
+  const captureStartTimeRef = useRef<number>(0); // Timestamp when current capture started
+  const timeOffsetRef = useRef<number>(0); // Smooth scroll: viewport slides across buffer (ms)
 
   // Hidden continuous: internally chunk large single captures
   const hiddenContinuousRef = useRef(false);
@@ -98,7 +99,7 @@ export function OscilloscopeView() {
   const xs = useMemo(() => values.map((_, i) => (i / (sampleRate || 1)) * 1000), [values, sampleRate]);
   const metrics = useMemo(() => computeMetrics(values, sampleRate || 1), [values, sampleRate]);
 
-  const [capturesVisible, setCapturesVisible] = useState(3);
+  const [capturesVisible, setCapturesVisible] = useState(10); // More captures = smoother scroll
 
   // Display delay: show data 1 capture behind real-time. The hardware restart
   // gap (between capture N and N+1) is always in the "future" — not displayed.
@@ -112,39 +113,48 @@ export function OscilloscopeView() {
     return effectiveNumSamples * capturesVisible; // N captures wide
   }, [running, effectiveNumSamples, capturesVisible]);
 
+  // Smooth scrolling: update display at 30fps during continuous run
+  // Advances timeOffsetRef to slide viewport across accumulated buffer
+  const [, tickDisplay] = useState(0);
+  useEffect(() => {
+    if (!continuous || !running) return;
+    const interval = setInterval(() => {
+      // Advance viewport by 33ms each frame (30fps)
+      // At 25.6kS/s, that's ~0.85 samples per frame - smooth sub-pixel scroll
+      timeOffsetRef.current += 33;
+      tickDisplay(v => v + 1);
+    }, 33);
+    return () => clearInterval(interval);
+  }, [continuous, running]);
+
   const displayValues = useMemo(() => {
     if (!running) return values; // When stopped, show ALL accumulated data
     if (displaySize === 0) return values;
-    // In continuous mode, show rolling trailing window
+    // In continuous mode, show sliding viewport (smooth scroll)
     if (continuous) {
-      return values.slice(-displaySize);
+      const dt = 1000 / (sampleRate || 1);
+      // timeOffsetRef advances every frame (33ms @ 30fps)
+      // Convert ms offset to sample offset
+      const sampleOffset = Math.floor(timeOffsetRef.current / dt);
+      const end = Math.min(values.length, values.length - displayDelaySamples + sampleOffset);
+      const start = Math.max(0, end - displaySize);
+      return values.slice(start, end);
     }
     // One-shot: strip-chart with delay to hide hardware restart gap
     const end = Math.max(0, values.length - displayDelaySamples);
     const start = Math.max(0, end - displaySize);
     return values.slice(start, end);
-  }, [values, running, displaySize, displayDelaySamples, continuous]);
-
-  // Smooth scrolling: update display at 30fps during continuous run
-  // Balances smooth animation vs UI responsiveness (stop button must work!)
-  const [, tickDisplay] = useState(0);
-  useEffect(() => {
-    if (!continuous || !running) return;
-    const interval = setInterval(() => tickDisplay(v => v + 1), 33); // 30fps ~33ms
-    return () => clearInterval(interval);
-  }, [continuous, running]);
+  }, [values, running, displaySize, displayDelaySamples, continuous, sampleRate, tickDisplay]);
 
   const displayXs = useMemo(() => {
     if (displaySize === 0) return xs;
     const dt = 1000 / (sampleRate || 1);
-    // For continuous rolling window, compute time from the END (scrolling right to left)
     if (continuous && running) {
-      // Smooth scrolling: use actual elapsed time since capture started, not sample count
-      // This gives ~30fps animation even when samples only arrive every ~240ms
-      const elapsedMs = Date.now() - captureStartTimeRef.current;
-      const endTime = Math.max(values.length * dt, elapsedMs);
+      // Smooth scrolling: time axis based on sliding viewport position
+      // Viewport end = total samples captured - delay + smooth offset
+      const viewportEndMs = (values.length - displayDelaySamples) * dt + timeOffsetRef.current;
       return Array.from({ length: displayValues.length }, (_, i) => 
-        endTime - (displayValues.length - 1 - i) * dt
+        viewportEndMs - (displayValues.length - 1 - i) * dt
       );
     }
     // Default: contiguous time from 0
@@ -413,7 +423,9 @@ export function OscilloscopeView() {
 
     captureGenRef.current += 1;
     startGenRef.current = captureGenRef.current;
-    captureStartTimeRef.current = Date.now(); // Reset time origin for smooth scroll
+    captureStartTimeRef.current = Date.now();
+    // Reset smooth scroll offset when new capture starts to prevent drift
+    timeOffsetRef.current = 0;
     preMetaQueueRef.current.length = 0;
 
     // Only clear plot/buffer on user-initiated start, not on auto-restart
