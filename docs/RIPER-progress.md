@@ -84,3 +84,31 @@ See `docs/PLAN-running-window.md`:
 13. `fb9f28d` feat: REL (relative) button for DSO mode
 14. `39dc6fb` feat: delayed display strip-chart — 1 capture behind, 3 captures wide
 15. `cab6bac` feat: streamlined continuous mode — locked 256 samples, dynamic restart, 50k buffer
+
+## DSO Continuous Mode Enhancements (June 10, 2026)
+
+### Adjustable Window Time for Continuous Mode
+- **New feature:** Selectable window times (2ms, 5ms, 10ms, 20ms) in continuous mode
+- **Dynamic sample calculation:** Samples = windowMs × 25.6 (at 25.6kS/s rate)
+- **Visual scroll speed:** Smaller windows = faster apparent scroll (2ms feels 2× faster than 10ms)
+- **UI:** Dropdown shows "5 ms (128 samples)" format with live sample count
+- **Default:** 5ms window (was 10ms), balancing scroll speed vs detail
+
+### Rolling Buffer Architecture
+- **Accumulating buffer:** Large 10k sample buffer accumulates all captures continuously
+- **Auto-trim:** Old data scrolls off, keeping last ~3 windows worth of data
+- **Stop behavior:** Shows full accumulated trace history when stopped
+- **Run behavior:** Rolling trailing window with scrolling time axis (computed from end)
+
+### Overlapping Capture Foundation (Reserved for Future)
+- **Architecture:** `InFlightCapture` interface prepared for true overlapping captures
+- **Status:** Disabled pending service-layer packet tagging (generation IDs)
+- **Design:** 2 concurrent captures with 75% overlap trigger for smooth CRT-like display
+- **Challenge:** BLE notifications don't carry capture generation - needs service-layer fix
+
+### Technical Decisions
+- Single-buffer mode for stability (overlapping disabled due to race conditions)
+- Sample calculation from window time rather than fixed 256 samples
+- Time axis computed from end point (scrolling right-to-left appearance)
+- Uses `continuousWindowMs` state variable separate from one-shot `windowMs`
+

@@ -21,7 +21,6 @@ import { computeMetrics } from "@/lib/waveformMetrics";
 import noiseBaseline from "../pokit/noiseBaseline.json";
 
 const CHUNK_SIZE = 2000; // Below Pokit's ~2800 wrap limit
-const MAX_CONTINUOUS_SAMPLES = 50000; // Enough for 2s @ 25.6kS/s
 const MIN_RESTART_DELAY_MS = 200; // 256-sample captures may restart faster
 
 const DSO_MODES = [
@@ -43,6 +42,7 @@ export function OscilloscopeView() {
   const [windowMs, setWindowMs] = useState<number>(10);
   const [numSamples, setNumSamples] = useState<number>(1024);
   const [continuousDelayMs, setContinuousDelayMs] = useState<number>(500); // Gap between captures in continuous mode
+  const [continuousWindowMs, setContinuousWindowMs] = useState<number>(5); // Window time for continuous mode (2, 5, 10, 20ms)
 
   const [meta, setMeta] = useState<DsoMetadata | null>(null);
   const [values, setValues] = useState<number[]>([]);
@@ -55,11 +55,26 @@ export function OscilloscopeView() {
   const preMetaQueueRef = useRef<{ gen: number; samples: number[] }[]>([]);
   const captureGenRef = useRef(0);
   const startGenRef = useRef(0); // Generation at which current capture started
+  // Reserved for scrolling window feature:
+  // const timeOffsetRef = useRef(0); // Time offset for continuous scrolling window
 
   // Hidden continuous: internally chunk large single captures
   const hiddenContinuousRef = useRef(false);
   const targetSamplesRef = useRef(0);
   const chunkSizeRef = useRef(0);
+
+  // Overlapping capture: multiple in-flight captures for smooth scrolling
+  interface InFlightCapture {
+    gen: number;
+    buffer: DsoCaptureBuffer;
+    expected: number;
+    status: 'sampling' | 'complete' | 'failed';
+    meta: DsoMetadata | null;
+  }
+  const inFlightRef = useRef<InFlightCapture[]>([]);
+  // Reserved for overlapping capture feature:
+  // const MAX_IN_FLIGHT = 2; // 2 concurrent captures for overlap
+  // const OVERLAP_THRESHOLD = 0.75; // Start next at 75% completion
 
   // Keep ref in sync with state so timeout callback sees latest value
   useEffect(() => {
@@ -71,16 +86,18 @@ export function OscilloscopeView() {
   const rangeOptions = rangeTable.map((r) => ({ value: r.value, label: r.label }));
   const unit = unitForMode(mode);
 
-  const sampleRate = meta?.samplingRate ?? (numSamples / (windowMs / 1000));
+  // Strip-chart display: contiguous time axis, Y scrolls left as new samples arrive.
+  // For continuous mode, calculate samples based on window time (maintaining ~25.6kS/s rate).
+  // Samples = sampleRate * windowTime = 25600 * (windowMs / 1000) = windowMs * 25.6
+  const CONTINUOUS_SAMPLE_RATE = 25600; // 25.6 kS/s typical for Pokit Pro
+  const effectiveNumSamples = continuous
+    ? Math.max(64, Math.round(continuousWindowMs * CONTINUOUS_SAMPLE_RATE / 1000)) // Min 64 samples
+    : numSamples;
+  const effectiveWindowMs = continuous ? continuousWindowMs : windowMs;
+
+  const sampleRate = meta?.samplingRate ?? (effectiveNumSamples / (effectiveWindowMs / 1000));
   const xs = useMemo(() => values.map((_, i) => (i / (sampleRate || 1)) * 1000), [values, sampleRate]);
   const metrics = useMemo(() => computeMetrics(values, sampleRate || 1), [values, sampleRate]);
-
-  // Strip-chart display: contiguous time axis, Y scrolls left as new samples arrive.
-  // Lock continuous mode to 256 samples + min window for best "fps".
-  const effectiveNumSamples = continuous ? 256 : numSamples;
-  const effectiveWindowMs = continuous
-    ? Math.max(Math.round(effectiveNumSamples / 200), windowMs)
-    : windowMs;
 
   const [capturesVisible, setCapturesVisible] = useState(3);
 
@@ -97,18 +114,31 @@ export function OscilloscopeView() {
   }, [running, effectiveNumSamples, capturesVisible]);
 
   const displayValues = useMemo(() => {
-    if (!running || displaySize === 0) return values;
+    if (!running) return values; // When stopped, show ALL accumulated data
+    if (displaySize === 0) return values;
+    // In continuous mode, show rolling trailing window
+    if (continuous) {
+      return values.slice(-displaySize);
+    }
+    // One-shot: strip-chart with delay to hide hardware restart gap
     const end = Math.max(0, values.length - displayDelaySamples);
     const start = Math.max(0, end - displaySize);
     return values.slice(start, end);
-  }, [values, running, displaySize, displayDelaySamples]);
+  }, [values, running, displaySize, displayDelaySamples, continuous]);
 
   const displayXs = useMemo(() => {
-    if (!running || displaySize === 0) return xs;
-    // Contiguous time axis for strip-chart (no gaps shown)
+    if (displaySize === 0) return xs;
     const dt = 1000 / (sampleRate || 1);
+    // For continuous rolling window, compute time from the END (scrolling right to left)
+    if (continuous && running) {
+      const endTime = values.length * dt;
+      return Array.from({ length: displayValues.length }, (_, i) => 
+        endTime - (displayValues.length - 1 - i) * dt
+      );
+    }
+    // Default: contiguous time from 0
     return Array.from({ length: displayValues.length }, (_, i) => i * dt);
-  }, [running, displaySize, displayValues.length, sampleRate]);
+  }, [running, displaySize, displayValues.length, sampleRate, continuous, values.length]);
 
   // REL (relative) mode: subtract baseline from trace to see small deviations
   const [relActive, setRelActive] = useState(false);
@@ -215,54 +245,50 @@ export function OscilloscopeView() {
 
       unsubMeta = await device.dso.onMetadata((m) => {
         if (cancelled) return;
-        const myGen = captureGenRef.current;
         setMeta(m);
 
-        // Determine buffer capacity: continuous = large, hidden = target, one-shot = capture size
+        // In continuous mode, accumulate into large rolling buffer
         if (continuousRef.current) {
           if (!bufferRef.current) {
-            bufferRef.current = new DsoCaptureBuffer(MAX_CONTINUOUS_SAMPLES, m.scale);
-          } else {
-            bufferRef.current.updateScale(MAX_CONTINUOUS_SAMPLES, m.scale);
+            // First capture - create buffer with room for multiple captures
+            bufferRef.current = new DsoCaptureBuffer(10000, m.scale); // ~40 captures worth
           }
-        } else if (hiddenContinuousRef.current) {
-          if (!bufferRef.current) {
-            bufferRef.current = new DsoCaptureBuffer(targetSamplesRef.current, m.scale);
-          } else {
-            bufferRef.current.updateScale(targetSamplesRef.current, m.scale);
-          }
+          // Update scale but DON'T reset - we want to accumulate
+          bufferRef.current.updateScale(10000, m.scale);
         } else {
+          // Legacy single-buffer mode for one-shot
           if (!bufferRef.current) bufferRef.current = new DsoCaptureBuffer(m.numberOfSamples, m.scale);
           else bufferRef.current.reset(m.numberOfSamples, m.scale);
         }
 
-        // Flush any samples that beat the metadata notification (same generation only).
+        // Flush any samples that beat the metadata notification.
         if (preMetaQueue.length > 0) {
           for (const entry of preMetaQueue) {
-            if (entry.gen === startGenRef.current) {
+            if (entry.gen === startGenRef.current && bufferRef.current) {
               bufferRef.current.push(entry.samples);
             }
           }
           preMetaQueue.length = 0;
           setValues(bufferRef.current.values());
         }
-        if (m.status === DsoStatus.Done) {
-          const shouldRestart = (continuousRef.current && pendingRestartRef.current) ||
-            (hiddenContinuousRef.current && bufferRef.current && bufferRef.current.count < targetSamplesRef.current);
 
-          if (shouldRestart && myGen === captureGenRef.current) {
-            // Auto-restart for continuous or hidden-continuous mode.
-            pendingRestartRef.current = false;
+        if (m.status === DsoStatus.Done) {
+          if (continuousRef.current) {
+            // Auto-restart for continuous mode (simple restart for now)
             const delay = Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS);
-            console.log(`[DSO] Scheduling restart in ${delay}ms (gen=${myGen})`);
             restartTimeoutRef.current = setTimeout(() => {
               restartTimeoutRef.current = null;
-              if (!cancelled && (continuousRef.current || hiddenContinuousRef.current)) {
-                console.log(`[DSO] Auto-restarting (gen=${captureGenRef.current})`);
+              if (!cancelled && continuousRef.current) {
                 void start(true);
-              } else {
-                console.log(`[DSO] Restart cancelled: cancelled=${cancelled}, continuous=${continuousRef.current}`);
               }
+            }, delay);
+          } else if (hiddenContinuousRef.current && bufferRef.current && bufferRef.current.count < targetSamplesRef.current) {
+            // Hidden continuous chunking - unchanged
+            pendingRestartRef.current = false;
+            const delay = Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS);
+            restartTimeoutRef.current = setTimeout(() => {
+              restartTimeoutRef.current = null;
+              if (!cancelled && hiddenContinuousRef.current) void start(true);
             }, delay);
           } else {
             hiddenContinuousRef.current = false;
@@ -276,6 +302,23 @@ export function OscilloscopeView() {
       unsubSamples = await device.dso.onSamples((samples) => {
         if (cancelled) return;
         const receiveGen = startGenRef.current;
+
+        // Route samples to the correct in-flight capture
+        // TEMP: Disabled overlapping - using single buffer for stability
+        // TODO: Re-enable when service layer tags packets with capture generation
+        if (continuousRef.current && bufferRef.current) {
+          bufferRef.current.push(samples);
+          // Trim to rolling window size (keep last ~3 seconds of data)
+          const windowSamples = continuousWindowMs * 25; // ~25.6 samples/ms
+          const maxDisplaySamples = Math.max(256, windowSamples * capturesVisible * 3); // 3 windows worth
+          if (bufferRef.current.count > maxDisplaySamples) {
+            bufferRef.current.trim(maxDisplaySamples);
+          }
+          setValues(bufferRef.current.values());
+          return;
+        }
+
+        // Legacy single-buffer mode
         if (!bufferRef.current) {
           preMetaQueue.push({ gen: receiveGen, samples });
           return;
@@ -293,13 +336,8 @@ export function OscilloscopeView() {
 
         bufferRef.current.push(samples);
 
-        // Live update: continuous = immediate, one-shot = rAF throttled
-        if (continuousRef.current) {
-          if (bufferRef.current && receiveGen === startGenRef.current) {
-            const snap = bufferRef.current.values();
-            setValues(snap);
-          }
-        } else if (!rafPending) {
+        // Live update: one-shot = rAF throttled
+        if (!rafPending) {
           rafPending = true;
           requestAnimationFrame(() => {
             if (bufferRef.current && !cancelled && receiveGen === startGenRef.current) {
@@ -369,19 +407,21 @@ export function OscilloscopeView() {
     // Only clear plot/buffer on user-initiated start, not on auto-restart
     if (!autoRestart) {
       bufferRef.current = null;
+      inFlightRef.current = []; // Clear overlapping captures on fresh start
       setValues([]);
-    } else if (continuousRef.current && bufferRef.current) {
-      // Trim old data before next capture so push() has room
-      bufferRef.current.trim(Math.round(MAX_CONTINUOUS_SAMPLES * 0.8));
     }
+    // Clear the overlap trigger flag so we can fire again
+    pendingRestartRef.current = false;
     setRunning(true);
 
-    // Use effective settings (locked to 256/min window in continuous mode).
+    // Use effective settings (calculated from window time in continuous mode).
     // Compute directly from ref to avoid stale closure with state-derived constants.
-    const reqSamples = continuousRef.current ? 256 : numSamples;
-    const reqWindow = continuousRef.current
-      ? Math.max(Math.round(256 / 200), windowMs)
-      : windowMs;
+    const CONTINUOUS_RATE = 25600; // 25.6 kS/s
+    const calculatedSamples = continuousRef.current
+      ? Math.max(64, Math.round(continuousWindowMs * CONTINUOUS_RATE / 1000))
+      : numSamples;
+    const reqSamples = calculatedSamples;
+    const reqWindow = continuousRef.current ? continuousWindowMs : windowMs;
 
     // Hidden continuous: chunk large single captures
     if (!continuousRef.current && reqSamples > 2800) {
@@ -542,9 +582,9 @@ export function OscilloscopeView() {
               className="w-full rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm"
             />
           </Field>
-          {(() => {
-            const effSamples = continuous ? effectiveNumSamples : numSamples;
-            const effWin = continuous ? effectiveWindowMs : windowMs;
+          {!continuous && (() => {
+            const effSamples = numSamples;
+            const effWin = windowMs;
             const minWindow = Math.max(2, Math.round(effSamples / 200));
             return (
               <Field label={`Window: ${effWin} ms (min ${minWindow} ms for ${effSamples} samples)`}>
@@ -554,13 +594,12 @@ export function OscilloscopeView() {
                   max={100}
                   value={Math.max(effWin, minWindow)}
                   onChange={(e) => setWindowMs(Number(e.target.value))}
-                  disabled={continuous}
                   className="w-full accent-pokit"
                 />
               </Field>
             );
           })()}
-          <Field label={`Samples${continuous ? " (locked to 256 in continuous)" : ""}`}>
+          <Field label={`Samples${continuous ? " (auto from window)" : ""}`}>
             <Select
               value={numSamples}
               options={(useBridge ? [256, 512, 1024, 2048, 4096] : [256, 512, 1024, 2048]).map((n) => ({ value: n, label: String(n) }))}
@@ -571,6 +610,19 @@ export function OscilloscopeView() {
           </Field>
           {continuous && (
             <>
+              <Field label={`Window: ${continuousWindowMs} ms (${effectiveNumSamples} samples)`}>
+                <Select
+                  value={continuousWindowMs}
+                  options={[
+                    { value: 2, label: "2 ms (52 samples)" },
+                    { value: 5, label: "5 ms (128 samples)" },
+                    { value: 10, label: "10 ms (256 samples)" },
+                    { value: 20, label: "20 ms (512 samples)" },
+                  ]}
+                  onValueChange={(v) => setContinuousWindowMs(Number(v))}
+                  className="w-full"
+                />
+              </Field>
               <Field label={`Refresh delay: ${Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)} ms (~${(1000 / Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)).toFixed(1)} fps)`}>
                 <input
                   type="range"

@@ -19,12 +19,12 @@ The Pokit Pro **does not support true continuous streaming** in any mode (this i
 
 - **Notification Gaps**: 135-150ms batching delays in Chromium's Web Bluetooth implementation
 - **No Connection Control**: Cannot set MTU or connection intervals (native apps can)
-- **Firmware Bug**: Beyond ~2700 samples, the device returns stale/repeated data (confirmed in Pokit Pro 1.6.0 changelog: "Fix: DSO sending invalid number of samples in case of BLE timeout")
+- **Firmware Bug**: Beyond ~2800 samples, the device returns stale/repeated data (confirmed in Pokit Pro 1.6.0 changelog: "Fix: DSO sending invalid number of samples in case of BLE timeout")
 
-**Current Workaround:**
+**Current Workarounds:**
 - Requests for >3000 samples are automatically reduced to 2800
 - UI updates are throttled to `requestAnimationFrame` cadence
-- Continuous mode re-triggers single-shot captures
+- Continuous mode re-triggers single-shot captures with adjustable window times (2/5/10/20ms)
 
 **Dual Backend Architecture (in progress):**
 This codebase supports **two backends**:
@@ -60,7 +60,7 @@ Still under active development and protocol validation.
 ## Features
 
 - **Multimeter** — live DC/AC voltage, current, resistance, continuity, diode, temperature and capacitance with mode/range/interval controls, HOLD/REL/MinMaxAvg, and continuity beep.
-- **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
+- **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes with adjustable window times, rolling buffer display, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
 - **Data Logger** — interval logging over time with CSV export and auto-save.
 - **Device** — firmware info, limits, live status & battery, flash LED, torch, rename.
 - **IndexedDB History** — saved measurements with searchable history drawer.
