@@ -57,6 +57,10 @@ export function OscilloscopeView() {
   const startGenRef = useRef(0); // Generation at which current capture started
   const captureStartTimeRef = useRef<number>(0); // Timestamp when current capture started
   const timeOffsetRef = useRef<number>(0); // Smooth scroll: viewport slides across buffer (ms)
+  const lastPacketTimeRef = useRef<number>(Date.now()); // For stall detection - init to now to prevent immediate stall
+  const samplesReceivedRef = useRef<number>(0); // Track samples for event-driven restart (decoupled from buffer)
+  const effectiveNumSamplesRef = useRef<number>(numSamples); // Keep ref in sync for sample handler
+  const continuousWindowMsRef = useRef<number>(5); // Keep ref in sync for sample handler
 
   // Hidden continuous: internally chunk large single captures
   const hiddenContinuousRef = useRef(false);
@@ -93,6 +97,11 @@ export function OscilloscopeView() {
   const effectiveNumSamples = continuous
     ? Math.max(64, Math.round(continuousWindowMs * CONTINUOUS_SAMPLE_RATE / 1000)) // Min 64 samples
     : numSamples;
+  // Keep refs in sync for sample handler (avoids stale closure in onSamples)
+  useEffect(() => {
+    effectiveNumSamplesRef.current = effectiveNumSamples;
+    continuousWindowMsRef.current = continuousWindowMs;
+  }, [effectiveNumSamples, continuousWindowMs]);
   const effectiveWindowMs = continuous ? continuousWindowMs : windowMs;
 
   const sampleRate = meta?.samplingRate ?? (effectiveNumSamples / (effectiveWindowMs / 1000));
@@ -122,44 +131,54 @@ export function OscilloscopeView() {
       // Advance viewport by 33ms each frame (30fps)
       // At 25.6kS/s, that's ~0.85 samples per frame - smooth sub-pixel scroll
       timeOffsetRef.current += 33;
+      // Prevent timeOffset from growing beyond display window (causes empty viewport after trim)
+      const dt = 1000 / (sampleRate || 25600);
+      const maxOffsetMs = displaySize * dt; // Maximum offset for one display window
+      if (timeOffsetRef.current > maxOffsetMs) {
+        timeOffsetRef.current = timeOffsetRef.current % maxOffsetMs;
+      }
       tickDisplay(v => v + 1);
     }, 33);
     return () => clearInterval(interval);
-  }, [continuous, running]);
+  }, [continuous, running, displaySize, sampleRate]);
+
+  // Stall guard: Disabled - was causing runaway restarts
+  // The event-driven trigger and timer fallback are sufficient
+  // useEffect(() => { ... }, [continuous, running]);
 
   const displayValues = useMemo(() => {
     if (!running) return values; // When stopped, show ALL accumulated data
     if (displaySize === 0) return values;
-    // In continuous mode, show sliding viewport (smooth scroll)
+    // In continuous mode, show rolling trailing window
     if (continuous) {
-      const dt = 1000 / (sampleRate || 1);
-      // timeOffsetRef advances every frame (33ms @ 30fps)
-      // Convert ms offset to sample offset
-      const sampleOffset = Math.floor(timeOffsetRef.current / dt);
-      const end = Math.min(values.length, values.length - displayDelaySamples + sampleOffset);
-      const start = Math.max(0, end - displaySize);
-      return values.slice(start, end);
+      return values.slice(-displaySize);
     }
     // One-shot: strip-chart with delay to hide hardware restart gap
     const end = Math.max(0, values.length - displayDelaySamples);
     const start = Math.max(0, end - displaySize);
     return values.slice(start, end);
-  }, [values, running, displaySize, displayDelaySamples, continuous, sampleRate, tickDisplay]);
+  }, [values, running, displaySize, displayDelaySamples, continuous]);
 
   const displayXs = useMemo(() => {
     if (displaySize === 0) return xs;
     const dt = 1000 / (sampleRate || 1);
-    if (continuous && running) {
-      // Smooth scrolling: time axis based on sliding viewport position
-      // Viewport end = total samples captured - delay + smooth offset
-      const viewportEndMs = (values.length - displayDelaySamples) * dt + timeOffsetRef.current;
+    // CRT-style strip chart: accumulate 0-inf, then scroll when full
+    // Phase 1: Building up (0 to current end time)
+    // Phase 2: Rolling window (end - windowSize to end)
+    const totalMs = values.length * dt;
+    const windowMs = displaySize * dt;
+    
+    if (totalMs <= windowMs) {
+      // Phase 1: Still filling the screen - show 0 to current end
+      return Array.from({ length: displayValues.length }, (_, i) => i * dt);
+    } else {
+      // Phase 2: Rolling window - show (end - window) to end
+      const endMs = totalMs;
       return Array.from({ length: displayValues.length }, (_, i) => 
-        viewportEndMs - (displayValues.length - 1 - i) * dt
+        endMs - (displayValues.length - 1 - i) * dt
       );
     }
-    // Default: contiguous time from 0
-    return Array.from({ length: displayValues.length }, (_, i) => i * dt);
-  }, [running, displaySize, displayValues.length, sampleRate, continuous, values.length, tickDisplay]);
+  }, [displaySize, displayValues.length, sampleRate, values.length]);
 
   // REL (relative) mode: subtract baseline from trace to see small deviations
   const [relActive, setRelActive] = useState(false);
@@ -266,6 +285,7 @@ export function OscilloscopeView() {
 
       unsubMeta = await device.dso.onMetadata((m) => {
         if (cancelled) return;
+        // console.log(`[DSO] Metadata: status=${m.status}, samples=${m.numberOfSamples}`);
         setMeta(m);
 
         // In continuous mode, accumulate into large rolling buffer
@@ -295,14 +315,17 @@ export function OscilloscopeView() {
 
         if (m.status === DsoStatus.Done) {
           if (continuousRef.current) {
-            // Auto-restart for continuous mode (simple restart for now)
-            const delay = Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS);
-            restartTimeoutRef.current = setTimeout(() => {
-              restartTimeoutRef.current = null;
-              if (!cancelled && continuousRef.current) {
-                void start(true);
-              }
-            }, delay);
+            // Timer fallback only if event-driven didn't fire (rare)
+            if (!pendingRestartRef.current) {
+              console.log('[DSO] Fallback restart in 200ms');
+              const delay = Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS);
+              restartTimeoutRef.current = setTimeout(() => {
+                restartTimeoutRef.current = null;
+                if (!cancelled && continuousRef.current) {
+                  void start(true);
+                }
+              }, delay);
+            }
           } else if (hiddenContinuousRef.current && bufferRef.current && bufferRef.current.count < targetSamplesRef.current) {
             // Hidden continuous chunking - unchanged
             pendingRestartRef.current = false;
@@ -323,15 +346,35 @@ export function OscilloscopeView() {
       unsubSamples = await device.dso.onSamples((samples) => {
         if (cancelled) return;
         const receiveGen = startGenRef.current;
+        lastPacketTimeRef.current = Date.now();
+        
+        console.log(`[DSO] Samples: received=${samples.length}, gen=${receiveGen}, startGen=${startGenRef.current}`);
 
-        // Route samples to the correct in-flight capture
-        // TEMP: Disabled overlapping - using single buffer for stability
-        // TODO: Re-enable when service layer tags packets with capture generation
+        // Event-driven: Trigger next capture immediately on first packet arrival
+        samplesReceivedRef.current += samples.length;
+        const expected = effectiveNumSamplesRef.current;
+        
+        // Event-driven trigger: restart at 50% completion for faster rate
+        if (continuousRef.current && !pendingRestartRef.current) {
+          const threshold = expected * 0.5;
+          if (samplesReceivedRef.current > threshold) {
+            pendingRestartRef.current = true;
+            console.log(`[DSO] Trigger @ ${samplesReceivedRef.current}/${expected}, restart in 100ms`);
+            setTimeout(() => {
+              console.log(`[DSO] Executing restart, gen=${captureGenRef.current}`);
+              if (!cancelled && continuousRef.current) {
+                void start(true);
+              }
+            }, 100);
+          }
+        }
+
+        // Route samples to display buffer
         if (continuousRef.current && bufferRef.current) {
           bufferRef.current.push(samples);
-          // Trim to rolling window size (keep last ~3 seconds of data)
-          const windowSamples = continuousWindowMs * 25; // ~25.6 samples/ms
-          const maxDisplaySamples = Math.max(256, windowSamples * capturesVisible * 3); // 3 windows worth
+          const windowMs = continuousWindowMsRef.current;
+          const windowSamples = windowMs * 25;
+          const maxDisplaySamples = Math.max(256, windowSamples * capturesVisible * 3);
           if (bufferRef.current.count > maxDisplaySamples) {
             bufferRef.current.trim(maxDisplaySamples);
           }
@@ -421,18 +464,28 @@ export function OscilloscopeView() {
       console.log(`[DSO] Guard passed (pos=${freshPos ?? "null"})`);
     }
 
+    // Prevent overlapping restarts
+    if (pendingRestartRef.current && autoRestart) {
+      console.log('[DSO] Skip duplicate restart');
+      return;
+    }
+    
+    console.log(`[DSO] start() called, autoRestart=${autoRestart}, continuous=${continuousRef.current}`);
     captureGenRef.current += 1;
     startGenRef.current = captureGenRef.current;
     captureStartTimeRef.current = Date.now();
-    // Reset smooth scroll offset when new capture starts to prevent drift
+    lastPacketTimeRef.current = Date.now();
+    samplesReceivedRef.current = 0;
     timeOffsetRef.current = 0;
     preMetaQueueRef.current.length = 0;
 
-    // Only clear plot/buffer on user-initiated start, not on auto-restart
+    // Clear buffer on fresh start only
     if (!autoRestart) {
       bufferRef.current = null;
-      inFlightRef.current = []; // Clear overlapping captures on fresh start
+      inFlightRef.current = [];
       setValues([]);
+      samplesReceivedRef.current = 0;
+      console.log('[DSO] === START ===');
     }
     // Clear the overlap trigger flag so we can fire again
     pendingRestartRef.current = false;
@@ -456,7 +509,9 @@ export function OscilloscopeView() {
     } else {
       hiddenContinuousRef.current = false;
       targetSamplesRef.current = 0;
-      pendingRestartRef.current = continuousRef.current;
+      // For normal continuous mode, let event-driven trigger handle restarts
+      // Only set pendingRestart if we want immediate timer-based restart
+      pendingRestartRef.current = false;  // Let event-driven trigger fire!
     }
 
     // Calculate exact remaining samples for the last hidden-continuous chunk
@@ -469,7 +524,7 @@ export function OscilloscopeView() {
     }
 
     const safeWindowMs = Math.max(reqWindow, Math.round(reqSamples / 200));
-    console.log(`[DSO] startDso: ${samplesToRequest} samples, window=${safeWindowMs}ms, continuous=${continuousRef.current}`);
+    console.log(`[DSO] startDso: ${samplesToRequest} samples`);
     try {
       await device.dso.startDso({
         command,
@@ -479,7 +534,7 @@ export function OscilloscopeView() {
         samplingWindowUs: Math.round(safeWindowMs * 1000),
         numberOfSamples: samplesToRequest,
       });
-      console.log(`[DSO] startDso succeeded (gen=${startGenRef.current})`);
+      console.log(`[DSO] startDso OK (gen=${startGenRef.current})`);
     } catch (err) {
       console.error(`[DSO] startDso failed (gen=${startGenRef.current}):`, err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -637,16 +692,35 @@ export function OscilloscopeView() {
               <Field label={`Window: ${continuousWindowMs} ms (${effectiveNumSamples} samples)`}>
                 <Select
                   value={continuousWindowMs}
-                  options={[
-                    { value: 2, label: "2 ms (52 samples)" },
-                    { value: 5, label: "5 ms (128 samples)" },
-                    { value: 10, label: "10 ms (256 samples)" },
-                    { value: 20, label: "20 ms (512 samples)" },
-                  ]}
+                  options={
+                    useBridge
+                      ? // Python Bridge: Full hardware speed
+                        [
+                          { value: 2, label: "2 ms (52 samples)" },
+                          { value: 5, label: "5 ms (128 samples)" },
+                          { value: 10, label: "10 ms (256 samples)" },
+                          { value: 20, label: "20 ms (512 samples)" },
+                          { value: 50, label: "50 ms (1,280 samples)" },
+                        ]
+                      : // Web Bluetooth: Chromium IPC limit (~150ms practical minimum)
+                        [
+                          { value: 10, label: "10 ms ⚡ (256 samples)" },
+                          { value: 20, label: "20 ms (512 samples)" },
+                          { value: 50, label: "50 ms (1,280 samples)" },
+                          { value: 100, label: "100 ms (2,560 samples)" },
+                          { value: 200, label: "200 ms 🌐 (5,120 samples)" },
+                        ]
+                  }
                   onValueChange={(v) => setContinuousWindowMs(Number(v))}
                   className="w-full"
                 />
               </Field>
+              {/* Web Bluetooth performance warning */}
+              {!useBridge && continuousWindowMs < 50 && (
+                <div className="mt-2 rounded bg-amber-900/30 border border-amber-700 px-3 py-2 text-sm text-amber-200">
+                  ⚠️ <strong>Web Bluetooth Limit:</strong> Windows below 50ms may be unstable due to browser BLE batching (~150ms). Use Python Bridge for faster captures.
+                </div>
+              )}
               <Field label={`Refresh delay: ${Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)} ms (~${(1000 / Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)).toFixed(1)} fps)`}>
                 <input
                   type="range"
