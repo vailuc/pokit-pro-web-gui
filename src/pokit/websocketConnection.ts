@@ -285,6 +285,7 @@ export class WebSocketPokitConnection {
 
   private _onMessage(msg: Record<string, unknown>): void {
     const type = msg.type as string;
+    console.log(`[WS] _onMessage received: type=${type}, req_id=${msg.req_id}`);
 
     // 1. Resolve pending requests
     const reqId = msg.req_id as number | undefined;
