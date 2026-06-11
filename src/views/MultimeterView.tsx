@@ -224,11 +224,16 @@ export function MultimeterView() {
   const statsDisplay = (() => {
     if (!stats.count || mode === MeterMode.Continuity) return null;
     const u = unitForMode(mode);
-    return [
+    const items = [
       { label: "Min", value: formatSi(stats.min, u) },
       { label: "Max", value: formatSi(stats.max, u) },
       { label: "Avg", value: formatSi(stats.avg, u) },
     ];
+    if (tareActive && tareLiveStats) {
+      const threshold = (tareLiveStats.range / 2) * tareSigma;
+      items.push({ label: "Floor", value: `±${formatSi(threshold, u)}` });
+    }
+    return items;
   })();
 
   // Auto-follow: only trigger when switch position CHANGES, not on every status update.
@@ -293,11 +298,6 @@ export function MultimeterView() {
       range: currentRangeLabel,
     });
     toast.success("Saved to history");
-  };
-
-  const bankActive = (bank: "V" | "A" | "Ω") => {
-    if (!switchPos || switchPos === "idle" || switchPos === "logger") return false;
-    return switchPos === bank;
   };
 
   return (
@@ -385,30 +385,8 @@ export function MultimeterView() {
         )}
       </div>
 
-      {/* 3 switch-position banks */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <ModeBank
-          title="V"
-          modes={V_MODES}
-          active={bankActive("V")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-        <ModeBank
-          title="A"
-          modes={A_MODES}
-          active={bankActive("A")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-        <ModeBank
-          title="Ω"
-          modes={OHM_MODES}
-          active={bankActive("Ω")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-      </div>
+      {/* Unified mode selector bar */}
+      <ModeBar currentMode={mode} onSelect={handleModeClick} switchPos={switchPos} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -450,43 +428,46 @@ export function MultimeterView() {
   );
 }
 
-function ModeBank({
-  title,
-  modes,
-  active,
+function ModeBar({
   currentMode,
   onSelect,
+  switchPos,
 }: {
-  title: string;
-  modes: MeterMode[];
-  active: boolean;
   currentMode: MeterMode;
   onSelect: (m: MeterMode) => void;
+  switchPos: string | null;
 }) {
+  const banks: { label: string; modes: MeterMode[]; key: "V" | "A" | "Ω" }[] = [
+    { label: "V", modes: V_MODES, key: "V" },
+    { label: "A", modes: A_MODES, key: "A" },
+    { label: "Ω", modes: OHM_MODES, key: "Ω" },
+  ];
+
   return (
-    <Card
-      className={[
-        "transition-colors",
-        active
-          ? "border-teal-500/50 bg-teal-950/10"
-          : "border-neutral-800 opacity-60",
-      ].join(" ")}
-    >
-      <CardHeader className="pb-2">
-        <CardTitle className={active ? "text-teal-400" : "text-neutral-500"}>
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        {modes.map((m) => (
-          <Button
-            key={m}
-            size="sm"
-            active={currentMode === m}
-            onClick={() => onSelect(m)}
-          >
-            {modeLabel(m)}
-          </Button>
+    <Card className="border-neutral-800">
+      <CardContent className="flex flex-wrap items-center gap-2 py-3">
+        {banks.map((bank, bankIdx) => (
+          <div key={bank.key} className="flex items-center gap-1">
+            {bankIdx > 0 && <div className="mx-1 h-6 w-px bg-neutral-700" />}
+            <span
+              className={[
+                "mr-1 text-xs font-bold",
+                switchPos === bank.key ? "text-teal-400" : "text-neutral-600",
+              ].join(" ")}
+            >
+              {bank.label}
+            </span>
+            {bank.modes.map((m) => (
+              <Button
+                key={m}
+                size="sm"
+                active={currentMode === m}
+                onClick={() => onSelect(m)}
+              >
+                {modeLabel(m)}
+              </Button>
+            ))}
+          </div>
         ))}
       </CardContent>
     </Card>
