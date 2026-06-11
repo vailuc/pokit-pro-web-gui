@@ -260,7 +260,7 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 
 ## Contributing
 
-Contributions are welcome. By submitting a pull request you agree to the terms in [`CLA.md`](CLA.md), which grants the project maintainer the right to use your contributions under both the open-source and commercial licenses.
+Contributions are welcome. By submitting a pull request, you agree to license your contribution under GPL-3.0 and grant the maintainer the right to include it in commercial licensing.
 
 ## License
 
