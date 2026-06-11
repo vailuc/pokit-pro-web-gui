@@ -155,13 +155,14 @@ export const useSettingsStore = create<SettingsState>()(
             pendingRequests.set(reqId, { resolve, reject });
             sendMessage({ type: "settings_get", req_id: reqId });
 
-            // 5 second timeout
+            // 8 second timeout (generous for busy server)
             setTimeout(() => {
               if (pendingRequests.has(reqId)) {
-                pendingRequests.delete(reqId);
-                reject(new Error("Settings sync timeout"));
+                // Don't delete — let late response still be processed
+                // Just reject the promise so caller isn't blocked
+                reject(new Error("Settings sync timeout (will retry)"));
               }
-            }, 5000);
+            }, 8000);
           });
 
           const msg = response as { type: string; data?: SettingsEnvelope; message?: string };
@@ -242,14 +243,17 @@ export const useSettingsStore = create<SettingsState>()(
             await Promise.race([
               promise,
               new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Settings save timeout")), 5000)
+                setTimeout(() => reject(new Error("Settings save timeout")), 8000)
               ),
             ]);
             console.log("[Settings] Saved to bridge successfully");
           } catch (err) {
-            pendingRequests.delete(reqId);
+            // Don't delete pending request — late response will still be handled
             const errorMsg = err instanceof Error ? err.message : "Settings save failed";
-            toast.error(`Settings not saved: ${errorMsg}`);
+            // Only show error if it's not a timeout (late response will still arrive)
+            if (!errorMsg.includes("timeout")) {
+              toast.error(`Settings not saved: ${errorMsg}`);
+            }
             console.error("[Settings] Save failed:", err);
           }
         }

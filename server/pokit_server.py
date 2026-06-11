@@ -634,12 +634,14 @@ class PokitBridgeServer:
 
             elif msg_type == "settings_get":
                 """Return current settings from file."""
+                logger.info(f"[WS] settings_get from client, req_id={req_id}")
                 settings = self.settings_manager.get()
                 await ws.send(json.dumps({
                     "type": "settings",
                     "req_id": req_id,
                     "data": settings
                 }))
+                logger.info(f"[WS] Sent settings response, req_id={req_id}")
 
             elif msg_type == "settings_set":
                 """Apply settings patch and save to file."""
