@@ -137,15 +137,22 @@ export function MultimeterView() {
             if (!autoCalCompleteRef.current && !tareActive && r.status !== MeterStatus.Error) {
               autoCalReadingsRef.current.push(r.value);
               if (autoCalReadingsRef.current.length >= 20) {
-                const vals = autoCalReadingsRef.current;
-                const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-                const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / vals.length;
-                const baseline = { mean, stdDev: Math.sqrt(variance), sampleCount: vals.length, date: new Date().toISOString() };
-                setTareBaseline({ mean, stdDev: baseline.stdDev });
-                setTareActive(true);
-                autoCalCompleteRef.current = true;
-                localStorage.setItem(tareKey, JSON.stringify(baseline));
-                toast.success(`Auto-tared ±${formatSi(baseline.stdDev * tareSigma, unit)}`);
+                const vals = autoCalReadingsRef.current.filter((v) => Number.isFinite(v));
+                if (vals.length < 5) {
+                  autoCalCompleteRef.current = true;
+                  setTareCalibrating(false);
+                  toast.error("Tare failed: unstable readings");
+                } else {
+                  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                  const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / vals.length;
+                  const baseline = { mean, stdDev: Math.sqrt(variance), sampleCount: vals.length, date: new Date().toISOString() };
+                  setTareBaseline({ mean, stdDev: baseline.stdDev });
+                  setTareActive(true);
+                  setTareCalibrating(false);
+                  autoCalCompleteRef.current = true;
+                  localStorage.setItem(tareKey, JSON.stringify(baseline));
+                  toast.success(`Auto-tared ±${formatSi(baseline.stdDev * tareSigma, unit)}`);
+                }
               }
             }
 
