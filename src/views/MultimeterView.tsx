@@ -67,6 +67,9 @@ export function MultimeterView() {
   const tareDeep = plugins.meter.tareDeep;
   const TARE_WINDOW_SIZE = 10;
   const DEEP_THRESHOLD = 0.2; // 200 mV — catches finger-touch coupling
+  const TARE_SNAPSHOT_KEY = "meterTareSnapshot";
+
+  const [tareSnapshotAvailable, setTareSnapshotAvailable] = useState(false);
 
   // Track last-used mode per switch position.
   const [lastModes, setLastModes] = useState<LastModes>({
@@ -102,11 +105,31 @@ export function MultimeterView() {
   }, [mode, range]);
 
   // Reset adaptive tare window on mode/range change.
+  // If tareAutoRestore is on, check for saved snapshot.
   useEffect(() => {
     tareWindowRef.current = [];
     setTareLiveStats(null);
     setTareActive(false);
-  }, [mode, range]);
+    if (plugins.meter.tareAutoRestore) {
+      try {
+        const saved = localStorage.getItem(TARE_SNAPSHOT_KEY);
+        if (saved) {
+          const snap = JSON.parse(saved);
+          if (snap.mode === mode && snap.range === range) {
+            setTareSnapshotAvailable(true);
+          } else {
+            setTareSnapshotAvailable(false);
+          }
+        } else {
+          setTareSnapshotAvailable(false);
+        }
+      } catch {
+        setTareSnapshotAvailable(false);
+      }
+    } else {
+      setTareSnapshotAvailable(false);
+    }
+  }, [mode, range, plugins.meter.tareAutoRestore]);
 
   // Apply settings + subscribe to live readings whenever config changes.
   useEffect(() => {
@@ -294,6 +317,20 @@ export function MultimeterView() {
 
   const handleTare = () => {
     if (tareActive) {
+      // Save snapshot before clearing if autoRestore is enabled
+      if (plugins.meter.tareAutoRestore && tareLiveStats) {
+        const snapshot = {
+          mode,
+          range,
+          window: tareWindowRef.current.slice(),
+          mean: tareLiveStats.mean,
+          rangeValue: tareLiveStats.range,
+          count: tareLiveStats.count,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(TARE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+        setTareSnapshotAvailable(true);
+      }
       setTareActive(false);
       tareWindowRef.current = [];
       setTareLiveStats(null);
@@ -303,6 +340,29 @@ export function MultimeterView() {
       tareWindowRef.current = [];
       setTareLiveStats(null);
       toast.info("Tare active — collecting noise floor…");
+    }
+  };
+
+  const handleRestoreTare = () => {
+    try {
+      const saved = localStorage.getItem(TARE_SNAPSHOT_KEY);
+      if (!saved) return;
+      const snap = JSON.parse(saved);
+      if (snap.mode !== mode || snap.range !== range) {
+        toast.error("Snapshot was for a different mode/range");
+        return;
+      }
+      tareWindowRef.current = snap.window || [];
+      setTareLiveStats({
+        mean: snap.mean,
+        range: snap.rangeValue,
+        count: snap.count,
+      });
+      setTareActive(true);
+      setTareSnapshotAvailable(false);
+      toast.success(`Restored tare (${snap.count} samples)`);
+    } catch {
+      toast.error("Failed to restore tare");
     }
   };
 
@@ -414,6 +474,11 @@ export function MultimeterView() {
         <Button variant="toggle" size="sm" active={tareActive} onClick={handleTare}>
           {tareActive ? "Tare On" : "Tare"}
         </Button>
+        {!tareActive && tareSnapshotAvailable && (
+          <Button variant="secondary" size="sm" onClick={handleRestoreTare}>
+            Restore
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={handleSave} disabled={!connected || !reading || reading.status === MeterStatus.Error}>
           Save
         </Button>
