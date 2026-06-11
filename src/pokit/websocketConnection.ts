@@ -328,9 +328,11 @@ export class WebSocketPokitConnection {
 
     // 4. Settings messages (forward to settings store)
     if (type === "settings" || type === "settings_ok" || type === "settings_error") {
+      console.log(`[WS] Routing ${type} to settings store:`, msg);
       // Import dynamically to avoid circular dependency
       import("@/store/settingsStore").then(({ useSettingsStore }) => {
         const store = useSettingsStore.getState();
+        console.log(`[WS] Store has handleSettingsMessage:`, !!store.handleSettingsMessage);
         if (store.handleSettingsMessage) {
           store.handleSettingsMessage(msg);
         }
