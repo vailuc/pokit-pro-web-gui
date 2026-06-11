@@ -123,7 +123,10 @@ export function MultimeterView() {
             // Adaptive tare: maintain rolling window of recent readings
             if (tareActive && r.status !== MeterStatus.Error && Number.isFinite(r.value)) {
               const window = tareWindowRef.current;
-              window.push(r.value);
+              // When REL is active, collect REL-adjusted values so window
+              // baseline matches what the user sees. Avoids double-counting.
+              const windowValue = rel && relRef.current !== null ? r.value - relRef.current : r.value;
+              window.push(windowValue);
               if (window.length > TARE_WINDOW_SIZE) window.shift();
               if (window.length >= 5) {
                 const mean = window.reduce((a: number, b: number) => a + b, 0) / window.length;
