@@ -64,7 +64,9 @@ export function MultimeterView() {
   const [tareLiveStats, setTareLiveStats] = useState<{ mean: number; range: number; count: number } | null>(null);
   const { plugins } = useSettingsStore();
   const tareSigma = plugins.meter.tareSigma;
+  const tareDeep = plugins.meter.tareDeep;
   const TARE_WINDOW_SIZE = 20;
+  const DEEP_THRESHOLD = 0.2; // 200 mV — catches finger-touch coupling
 
   // Track last-used mode per switch position.
   const [lastModes, setLastModes] = useState<LastModes>({
@@ -211,8 +213,9 @@ export function MultimeterView() {
     // Adaptive Tare: gate within observed noise range of rolling window
     if (tareActive && tareLiveStats) {
       const centered = tared - tareLiveStats.mean;
-      const threshold = (tareLiveStats.range / 2) * tareSigma;
-      if (Math.abs(centered) < threshold) {
+      const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+      const effectiveThreshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+      if (Math.abs(centered) < effectiveThreshold) {
         return { displayValue: "0.000", isGated: true };
       }
       return { displayValue: formatSi(centered, unit), isGated: false };
@@ -230,8 +233,9 @@ export function MultimeterView() {
       { label: "Avg", value: formatSi(stats.avg, u) },
     ];
     if (tareActive && tareLiveStats) {
-      const threshold = (tareLiveStats.range / 2) * tareSigma;
-      items.push({ label: "Floor", value: `±${formatSi(threshold, u)}` });
+      const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+      const effectiveThreshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+      items.push({ label: "Floor", value: `±${formatSi(effectiveThreshold, u)}` });
     }
     return items;
   })();
@@ -290,12 +294,28 @@ export function MultimeterView() {
   const handleSave = async () => {
     if (!reading || reading.status === MeterStatus.Error) return;
     const name = `${modeLabel(mode)} ${new Date().toLocaleTimeString()}`;
+    const noiseThreshold = tareActive && tareLiveStats
+      ? (tareLiveStats.range / 2) * tareSigma
+      : null;
+    const effectiveThreshold = tareActive && tareLiveStats
+      ? (tareDeep ? Math.max(noiseThreshold!, DEEP_THRESHOLD) : noiseThreshold!)
+      : null;
     await saveHistory("meter", name, {
       value: displayValue,
       mode: modeLabel(mode),
       unit,
       raw: reading.value,
       range: currentRangeLabel,
+      tare: tareActive
+        ? {
+            active: true,
+            sigma: tareSigma,
+            deep: tareDeep,
+            noiseThreshold,
+            effectiveThreshold,
+            windowSize: tareLiveStats?.count ?? 0,
+          }
+        : undefined,
     });
     toast.success("Saved to history");
   };
@@ -370,17 +390,26 @@ export function MultimeterView() {
           Save
         </Button>
         {tareActive && (
-          <div className="flex items-center gap-1 text-xs text-neutral-400">
-            <span>σ</span>
-            {[1, 2, 3, 4].map((s) => (
-              <button
-                key={s}
-                className={`h-6 w-6 rounded text-center leading-6 ${tareSigma === s ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}
-                onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareSigma", s)}
-              >
-                {s}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <div className="flex items-center gap-1">
+              <span>σ</span>
+              {[1, 2, 3, 4].map((s) => (
+                <button
+                  key={s}
+                  className={`h-6 w-6 rounded text-center leading-6 ${tareSigma === s ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}
+                  onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareSigma", s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button
+              className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tareDeep ? "bg-amber-600 text-white" : "bg-neutral-800 text-neutral-500 hover:bg-neutral-700"}`}
+              onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareDeep", !tareDeep)}
+              title="Extend gate to catch finger-touch / environmental coupling (~200mV)"
+            >
+              Deep
+            </button>
           </div>
         )}
       </div>
