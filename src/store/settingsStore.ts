@@ -10,6 +10,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { toast } from "@/store/toastStore";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ export const useSettingsStore = create<SettingsState>()(
         console.log(`[Settings] Plugin ${plugin} updated: ${String(key)} = ${value}`);
       },
 
-      patchSettings: (patch, sendMessage) => {
+      patchSettings: async (patch, sendMessage) => {
         const current = get() as unknown as Record<string, unknown>;
         const merged = deepMerge(current, patch) as unknown as SettingsState;
         set(merged);
@@ -208,12 +209,33 @@ export const useSettingsStore = create<SettingsState>()(
         // Send to bridge if sendMessage provided
         if (sendMessage) {
           const reqId = getReqId();
+          
+          // Create promise to await response
+          const promise = new Promise((resolve, reject) => {
+            pendingRequests.set(reqId, { resolve, reject });
+          });
+          
           sendMessage({
             type: "settings_set",
             reqId,
             patch,
           });
-          // Fire-and-forget; we don't wait for response
+          
+          // Await response with timeout
+          try {
+            await Promise.race([
+              promise,
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Settings save timeout")), 5000)
+              ),
+            ]);
+            console.log("[Settings] Saved to bridge successfully");
+          } catch (err) {
+            pendingRequests.delete(reqId);
+            const errorMsg = err instanceof Error ? err.message : "Settings save failed";
+            toast.error(`Settings not saved: ${errorMsg}`);
+            console.error("[Settings] Save failed:", err);
+          }
         }
 
         console.log("[Settings] Patched:", patch);

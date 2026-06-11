@@ -55,7 +55,7 @@ ALL_SERVICES = [
 ]
 
 # ── Config ──────────────────────────────────────────────────────────────────
-CONFIG_DIR = Path.home() / ".config" / "pokit-bridge"
+CONFIG_DIR = Path.home() / ".config" / "pokit-pro"
 CONFIG_FILE = CONFIG_DIR / "last_device.json"
 
 # ── Settings Persistence ──────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ def get_settings_path() -> Path:
     """Single source of truth for settings file path."""
     if os.environ.get("APP_SETTINGS"):
         return Path(os.environ["APP_SETTINGS"])
-    return Path.home() / ".config" / "pokit-bridge" / "settings.json"
+    return Path.home() / ".config" / "pokit-pro" / "settings.json"
 
 SETTINGS_FILE = get_settings_path()
 
