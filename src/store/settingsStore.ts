@@ -294,7 +294,7 @@ export const useSettingsStore = create<SettingsState>()(
               ui: { ...current.ui, ...serverSettings.ui },
               plugins: { ...current.plugins, ...serverSettings.plugins },
             };
-            set(merged);
+            set({ ...merged, isLoading: false, isSynced: true, error: null });
           }
         }
 
