@@ -65,7 +65,7 @@ export function MultimeterView() {
   const { plugins } = useSettingsStore();
   const tareSigma = plugins.meter.tareSigma;
   const tareDeep = plugins.meter.tareDeep;
-  const TARE_WINDOW_SIZE = 20;
+  const TARE_WINDOW_SIZE = 10;
   const DEEP_THRESHOLD = 0.2; // 200 mV — catches finger-touch coupling
 
   // Track last-used mode per switch position.
@@ -130,7 +130,7 @@ export function MultimeterView() {
               const windowValue = rel && relRef.current !== null ? r.value - relRef.current : r.value;
               window.push(windowValue);
               if (window.length > TARE_WINDOW_SIZE) window.shift();
-              if (window.length >= 5) {
+              if (window.length >= 3) {
                 const mean = window.reduce((a: number, b: number) => a + b, 0) / window.length;
                 const min = Math.min(...window);
                 const max = Math.max(...window);
