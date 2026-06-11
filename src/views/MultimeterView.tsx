@@ -121,7 +121,7 @@ export function MultimeterView() {
             setLastMeterReading(r);
 
             // Adaptive tare: maintain rolling window of recent readings
-            if (tareActive && r.status !== MeterStatus.Error && Number.isFinite(r.value)) {
+            if (tareActive && mode !== MeterMode.Continuity && r.status !== MeterStatus.Error && Number.isFinite(r.value)) {
               const window = tareWindowRef.current;
               // When REL is active, collect REL-adjusted values so window
               // baseline matches what the user sees. Avoids double-counting.
@@ -142,6 +142,10 @@ export function MultimeterView() {
                 setStats((prev) => {
                   const n = prev.count + 1;
                   let v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  // Apply tare baseline to stats for consistency with display
+                  if (tareActive && tareLiveStats) {
+                    v = v - tareLiveStats.mean;
+                  }
                   return {
                     min: Math.min(prev.min, v),
                     max: Math.max(prev.max, v),
