@@ -57,17 +57,19 @@ interface SettingsState extends SettingsEnvelope {
   isLoading: boolean;
   isSynced: boolean;
   error: string | null;
+  sendMessage: ((msg: unknown) => void) | null;
   
   // Actions
   loadFromLocal: () => void;
+  setSender: (sendMessage: (msg: unknown) => void) => void;
   syncFromBridge: (sendMessage: (msg: unknown) => void) => Promise<void>;
-  updateUI: <K extends keyof UISettings>(key: K, value: UISettings[K]) => void;
+  updateUI: <K extends keyof UISettings>(key: K, value: UISettings[K]) => Promise<void>;
   updatePlugin: <P extends keyof PluginSettings, K extends keyof PluginSettings[P]>(
     plugin: P,
     key: K,
     value: PluginSettings[P][K]
-  ) => void;
-  patchSettings: (patch: Partial<SettingsEnvelope>, sendMessage?: (msg: unknown) => void) => void;
+  ) => Promise<void>;
+  patchSettings: (patch: Partial<SettingsEnvelope>, sendMessage?: (msg: unknown) => void) => Promise<void>;
   handleSettingsMessage: (message: unknown) => void;
 }
 
@@ -132,6 +134,12 @@ export const useSettingsStore = create<SettingsState>()(
       isLoading: false,
       isSynced: false,
       error: null,
+      sendMessage: null,
+
+      setSender: (sendMessage) => {
+        set({ sendMessage });
+        console.log("[Settings] WebSocket sender registered");
+      },
 
       loadFromLocal: () => {
         // Hydration happens automatically via Zustand persist
@@ -145,7 +153,7 @@ export const useSettingsStore = create<SettingsState>()(
           const reqId = getReqId();
           const response = await new Promise<unknown>((resolve, reject) => {
             pendingRequests.set(reqId, { resolve, reject });
-            sendMessage({ type: "settings_get", reqId });
+            sendMessage({ type: "settings_get", req_id: reqId });
 
             // 5 second timeout
             setTimeout(() => {
@@ -180,24 +188,32 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
 
-      updateUI: (key, value) => {
+      updateUI: async (key, value) => {
         const current = get();
         const newUI = { ...current.ui, [key]: value };
         const newState = { ...current, ui: newUI };
         set(newState);
 
         // Send to bridge if we have a send function available
-        // This will be called by components that have access to the WebSocket
-        console.log(`[Settings] UI updated: ${key} = ${value}`);
+        const sender = current.sendMessage;
+        if (sender) {
+          await get().patchSettings({ ui: newUI }, sender);
+        }
+        console.log(`[Settings] UI ${key} updated: ${value}`);
       },
 
-      updatePlugin: (plugin, key, value) => {
+      updatePlugin: async (plugin, key, value) => {
         const current = get();
         const newPlugin = { ...current.plugins[plugin], [key]: value } as PluginSettings[typeof plugin];
         const newPlugins = { ...current.plugins, [plugin]: newPlugin };
         const newState = { ...current, plugins: newPlugins };
         set(newState);
 
+        // Send to bridge if we have a send function available
+        const sender = current.sendMessage;
+        if (sender) {
+          await get().patchSettings({ plugins: newPlugins }, sender);
+        }
         console.log(`[Settings] Plugin ${plugin} updated: ${String(key)} = ${value}`);
       },
 
@@ -217,7 +233,7 @@ export const useSettingsStore = create<SettingsState>()(
           
           sendMessage({
             type: "settings_set",
-            reqId,
+            req_id: reqId,
             patch,
           });
           
@@ -242,7 +258,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       handleSettingsMessage: (message) => {
-        const msg = message as { type: string; reqId?: number; data?: unknown; message?: string };
+        const msg = message as { type: string; req_id?: number; data?: unknown; message?: string };
 
         // Handle responses to pending requests
         if (
@@ -250,7 +266,7 @@ export const useSettingsStore = create<SettingsState>()(
           msg.type === "settings_ok" ||
           msg.type === "settings_error"
         ) {
-          const reqId = msg.reqId;
+          const reqId = msg.req_id;
           if (reqId && pendingRequests.has(reqId)) {
             const pending = pendingRequests.get(reqId)!;
             pendingRequests.delete(reqId);

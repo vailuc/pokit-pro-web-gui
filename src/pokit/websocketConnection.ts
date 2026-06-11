@@ -239,15 +239,23 @@ export class WebSocketPokitConnection {
       this.ws.onopen = () => {
         console.log("[WS] Connected to Pokit bridge server");
         
-        // Sync settings from bridge on connect
+        // Register sender and sync settings from bridge on connect
         import("@/store/settingsStore").then(({ useSettingsStore }) => {
           const store = useSettingsStore.getState();
-          if (store.syncFromBridge && this.ws) {
-            store.syncFromBridge((msg) => {
-              if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify(msg));
-              }
-            });
+          
+          // Register the send function for UI-triggered saves
+          const sendMessage = (msg: unknown) => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify(msg));
+            }
+          };
+          if (store.setSender) {
+            store.setSender(sendMessage);
+          }
+          
+          // Sync settings from bridge
+          if (store.syncFromBridge) {
+            store.syncFromBridge(sendMessage);
           }
         });
         
