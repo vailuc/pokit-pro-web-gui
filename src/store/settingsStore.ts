@@ -260,13 +260,15 @@ export const useSettingsStore = create<SettingsState>()(
       handleSettingsMessage: (message) => {
         const msg = message as { type: string; req_id?: number; data?: unknown; message?: string };
 
-        // Handle responses to pending requests
+        // Handle responses to pending requests AND apply settings data
         if (
           msg.type === "settings" ||
           msg.type === "settings_ok" ||
           msg.type === "settings_error"
         ) {
           const reqId = msg.req_id;
+          
+          // Resolve pending request if present
           if (reqId && pendingRequests.has(reqId)) {
             const pending = pendingRequests.get(reqId)!;
             pendingRequests.delete(reqId);
@@ -276,6 +278,21 @@ export const useSettingsStore = create<SettingsState>()(
             } else {
               pending.resolve(msg);
             }
+          }
+          
+          // Apply settings data from server (for settings_get response)
+          if (msg.type === "settings" && msg.data) {
+            const current = get();
+            const serverSettings = msg.data as SettingsEnvelope;
+            // Merge server data but preserve local UI settings
+            const merged: SettingsEnvelope = {
+              version: serverSettings.version,
+              lastModified: serverSettings.lastModified,
+              ui: { ...current.ui, ...serverSettings.ui },
+              plugins: { ...current.plugins, ...serverSettings.plugins },
+            };
+            set(merged);
+            console.log("[Settings] Applied from server:", merged);
           }
         }
 
