@@ -44,7 +44,7 @@ interface LastModes {
 }
 
 export function MultimeterView() {
-  const { device, connectionState, status, characteristics, autoFollowSwitch, setManualOverride, setLastMeterReading } = useDeviceStore();
+  const { device, connectionState, status, autoFollowSwitch, setManualOverride, setLastMeterReading } = useDeviceStore();
   const connected = connectionState === "connected";
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
@@ -58,14 +58,13 @@ export function MultimeterView() {
   const [stats, setStats] = useState<Stats>({ min: Infinity, max: -Infinity, avg: 0, count: 0 });
   const lastShortRef = useRef(false);
 
-  // Tare: statistical noise calibration
+  // Adaptive Tare: rolling window noise floor
   const [tareActive, setTareActive] = useState(false);
-  const [tareCalibrating, setTareCalibrating] = useState(false);
-  const [tareBaseline, setTareBaseline] = useState<{ mean: number; stdDev: number } | null>(null);
-  const autoCalReadingsRef = useRef<number[]>([]);
-  const autoCalCompleteRef = useRef(false);
+  const tareWindowRef = useRef<number[]>([]);
+  const [tareLiveStats, setTareLiveStats] = useState<{ mean: number; range: number; count: number } | null>(null);
   const { plugins } = useSettingsStore();
   const tareSigma = plugins.meter.tareSigma;
+  const TARE_WINDOW_SIZE = 20;
 
   // Track last-used mode per switch position.
   const [lastModes, setLastModes] = useState<LastModes>({
@@ -100,24 +99,12 @@ export function MultimeterView() {
     lastShortRef.current = false;
   }, [mode, range]);
 
-  // Load tare baseline from localStorage on mode/range change.
-  const deviceMac = characteristics?.macAddress ?? "default";
-  const tareKey = `meterBaseline_${deviceMac}_${mode}_${range}`;
+  // Reset adaptive tare window on mode/range change.
   useEffect(() => {
+    tareWindowRef.current = [];
+    setTareLiveStats(null);
     setTareActive(false);
-    setTareCalibrating(false);
-    setTareBaseline(null);
-    autoCalCompleteRef.current = false;
-    autoCalReadingsRef.current = [];
-    const saved = localStorage.getItem(tareKey);
-    if (saved) {
-      try {
-        const b = JSON.parse(saved);
-        setTareBaseline({ mean: b.mean, stdDev: b.stdDev });
-        setTareActive(true);
-      } catch { /* ignore */ }
-    }
-  }, [mode, range, tareKey]);
+  }, [mode, range]);
 
   // Apply settings + subscribe to live readings whenever config changes.
   useEffect(() => {
@@ -133,26 +120,16 @@ export function MultimeterView() {
             if (cancelled) return;
             setLastMeterReading(r);
 
-            // Auto-calibration: collect first 20 readings silently
-            if (!autoCalCompleteRef.current && !tareActive && r.status !== MeterStatus.Error) {
-              autoCalReadingsRef.current.push(r.value);
-              if (autoCalReadingsRef.current.length >= 20) {
-                const vals = autoCalReadingsRef.current.filter((v) => Number.isFinite(v));
-                if (vals.length < 5) {
-                  autoCalCompleteRef.current = true;
-                  setTareCalibrating(false);
-                  toast.error("Tare failed: unstable readings");
-                } else {
-                  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-                  const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / vals.length;
-                  const baseline = { mean, stdDev: Math.sqrt(variance), sampleCount: vals.length, date: new Date().toISOString() };
-                  setTareBaseline({ mean, stdDev: baseline.stdDev });
-                  setTareActive(true);
-                  setTareCalibrating(false);
-                  autoCalCompleteRef.current = true;
-                  localStorage.setItem(tareKey, JSON.stringify(baseline));
-                  toast.success(`Auto-tared ±${formatSi(baseline.stdDev * tareSigma, unit)}`);
-                }
+            // Adaptive tare: maintain rolling window of recent readings
+            if (tareActive && r.status !== MeterStatus.Error && Number.isFinite(r.value)) {
+              const window = tareWindowRef.current;
+              window.push(r.value);
+              if (window.length > TARE_WINDOW_SIZE) window.shift();
+              if (window.length >= 5) {
+                const mean = window.reduce((a: number, b: number) => a + b, 0) / window.length;
+                const min = Math.min(...window);
+                const max = Math.max(...window);
+                setTareLiveStats({ mean, range: max - min, count: window.length });
               }
             }
 
@@ -162,9 +139,6 @@ export function MultimeterView() {
                 setStats((prev) => {
                   const n = prev.count + 1;
                   let v = relRef.current !== null ? r.value - relRef.current : r.value;
-                  if (tareActive && tareBaseline) {
-                    v = v - tareBaseline.mean;
-                  }
                   return {
                     min: Math.min(prev.min, v),
                     max: Math.max(prev.max, v),
@@ -227,10 +201,10 @@ export function MultimeterView() {
     const relOffset = rel && relRef.current !== null ? relRef.current : 0;
     const tared = reading.value - relOffset;
 
-    // Tare: center around calibrated mean, gate within ±Nσ
-    if (tareActive && tareBaseline) {
-      const centered = tared - tareBaseline.mean;
-      const threshold = tareBaseline.stdDev * tareSigma;
+    // Adaptive Tare: gate within observed noise range of rolling window
+    if (tareActive && tareLiveStats) {
+      const centered = tared - tareLiveStats.mean;
+      const threshold = (tareLiveStats.range / 2) * tareSigma;
       if (Math.abs(centered) < threshold) {
         return { displayValue: "0.000", isGated: true };
       }
@@ -288,30 +262,16 @@ export function MultimeterView() {
   };
 
   const handleTare = () => {
-    if (tareActive || tareCalibrating) {
-      // Clear tare
+    if (tareActive) {
       setTareActive(false);
-      setTareCalibrating(false);
-      setTareBaseline(null);
-      autoCalCompleteRef.current = true; // stop auto-cal
-      autoCalReadingsRef.current = [];
-      localStorage.removeItem(tareKey);
+      tareWindowRef.current = [];
+      setTareLiveStats(null);
       toast.info("Tare cleared");
     } else {
-      // Manual calibration: collect from current stats window
-      if (stats.count < 5) {
-        toast.error("Need more readings to calibrate");
-        return;
-      }
-      // Use accumulated stats as proxy, or collect fresh
-      setTareCalibrating(true);
-      // Quick calibration from recent readings — in practice we'd collect
-      // a fresh window, but stats.avg gives us a reasonable center.
-      // For better accuracy, do a short collection burst:
-      autoCalCompleteRef.current = false;
-      autoCalReadingsRef.current = [];
-      toast.info("Calibrating… keep probes steady");
-      // Auto-cal will pick up in the next ~20 readings via onReading
+      setTareActive(true);
+      tareWindowRef.current = [];
+      setTareLiveStats(null);
+      toast.info("Tare active — collecting noise floor…");
     }
   };
 
@@ -397,7 +357,7 @@ export function MultimeterView() {
           {rel ? "REL On" : "REL"}
         </Button>
         <Button variant="toggle" size="sm" active={tareActive} onClick={handleTare}>
-          {tareActive ? "Tare On" : tareCalibrating ? "Tare…" : "Tare"}
+          {tareActive ? "Tare On" : "Tare"}
         </Button>
         <Button variant="secondary" size="sm" onClick={handleSave} disabled={!connected || !reading || reading.status === MeterStatus.Error}>
           Save
