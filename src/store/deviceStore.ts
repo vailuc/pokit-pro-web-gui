@@ -1,11 +1,14 @@
 /**
  * Global connection/device state. Holds the single PokitDevice instance and
  * exposes connect/disconnect plus live device info & status.
+ * Supports runtime switching between Web Bluetooth and Python BLE bridge.
  */
 
 import { create } from "zustand";
 import {
   PokitDevice,
+  PokitConnection,
+  WebSocketPokitConnection,
   type DeviceCharacteristics,
   type DeviceStatus,
   type MeterReading,
@@ -14,11 +17,13 @@ import { toast } from "./toastStore";
 import { saveHistory } from "./historyStore";
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const BRIDGE_KEY = "pokit-use-bridge";
 
 export type ConnectionState =
   | "unsupported"
   | "disconnected"
   | "connecting"
+  | "scanning"
   | "reconnecting"
   | "connected";
 
@@ -31,8 +36,10 @@ interface DeviceState {
   torchOn: boolean;
   error: string | null;
   lastMeterReading: MeterReading | null;
-
+  useBridge: boolean;
   reconnectAttempt: number;
+  autoFollowSwitch: boolean;
+  manualOverride: boolean;
 
   connect: () => Promise<void>;
   disconnect: () => void;
@@ -42,38 +49,109 @@ interface DeviceState {
   toggleTorch: () => Promise<void>;
   setName: (name: string) => Promise<void>;
   setLastMeterReading: (r: MeterReading | null) => void;
+  setUseBridge: (enabled: boolean) => void;
+  setAutoFollowSwitch: (enabled: boolean) => void;
+  setManualOverride: (enabled: boolean) => void;
 }
 
-const device = new PokitDevice();
+function createDevice(preferBridge: boolean): PokitDevice {
+  if (preferBridge && WebSocketPokitConnection.isAvailable()) {
+    return new PokitDevice(new WebSocketPokitConnection());
+  }
+  return new PokitDevice();
+}
+
+function isBackendAvailable(useBridge: boolean): boolean {
+  if (useBridge) {
+    return WebSocketPokitConnection.isAvailable();
+  }
+  return PokitConnection.isAvailable();
+}
+
+function initialState() {
+  const useBridge = localStorage.getItem(BRIDGE_KEY) === "true";
+  const device = createDevice(useBridge);
+  return {
+    device,
+    connectionState: (isBackendAvailable(useBridge) ? "disconnected" : "unsupported") as ConnectionState,
+    deviceName: "",
+    characteristics: null,
+    status: null,
+    torchOn: false,
+    error: null,
+    lastMeterReading: null,
+    useBridge,
+    reconnectAttempt: 0,
+    autoFollowSwitch: true,
+    manualOverride: false,
+  };
+}
 
 export const useDeviceStore = create<DeviceState>((set, get) => {
+  let state = initialState();
   let statusUnsub: (() => Promise<void>) | null = null;
   let buttonUnsub: (() => Promise<void>) | null = null;
+  let statusPollInterval: ReturnType<typeof setInterval> | null = null;
+  let lastStatusNotifyAt = 0;
 
-  // React to connection drops: auto-reconnect unless the user asked to disconnect.
-  device.connection.onConnectionChange((connected) => {
-    if (connected) return;
-    if (buttonUnsub) { try { void buttonUnsub(); } catch { /* ignore */ } buttonUnsub = null; }
-    set({ characteristics: null, status: null });
-    if (device.connection.wasIntentionalDisconnect) {
-      set({ connectionState: "disconnected" });
-    } else if (device.connection.canReconnect) {
-      void get().attemptReconnect();
-    } else {
-      set({ connectionState: "disconnected" });
-      toast.error("Device disconnected");
-    }
-  });
+  function attachListeners(device: PokitDevice) {
+    device.connection.onConnectionChange((connected) => {
+      if (connected) return;
+      if (statusUnsub) { try { void statusUnsub(); } catch { /* ignore */ } statusUnsub = null; }
+      if (buttonUnsub) { try { void buttonUnsub(); } catch { /* ignore */ } buttonUnsub = null; }
+      if (statusPollInterval) { clearInterval(statusPollInterval); statusPollInterval = null; }
+      lastStatusNotifyAt = 0;
+      set({ characteristics: null, status: null });
+      if (device.connection.wasIntentionalDisconnect) {
+        set({ connectionState: "disconnected" });
+      } else if (device.connection.canReconnect) {
+        void get().attemptReconnect();
+      } else {
+        set({ connectionState: "disconnected" });
+        toast.error("Device disconnected");
+      }
+    });
+  }
 
-  const subscribeStatus = async () => {
+  attachListeners(state.device);
+
+  const subscribeStatus = async (device: PokitDevice) => {
     if (statusUnsub) {
       try { await statusUnsub(); } catch { /* device may be gone */ }
       statusUnsub = null;
     }
-    statusUnsub = await device.status.onStatus((status) => set({ status }));
+    try {
+      statusUnsub = await device.status.onStatus((status) => {
+        lastStatusNotifyAt = Date.now();
+        console.log(`[Status] Notification: code=${status.status} at ${new Date().toISOString().slice(11, 23)}`);
+        set({ status });
+      });
+    } catch (e) {
+      console.warn("[DeviceStore] Status notify subscription failed:", e);
+    }
   };
 
-  const subscribeButton = async () => {
+  const startStatusPoll = (device: PokitDevice) => {
+    if (statusPollInterval) clearInterval(statusPollInterval);
+    statusPollInterval = setInterval(async () => {
+      if (!device.isConnected) return;
+      // Skip poll if we got a notification in the last 3 seconds.
+      if (Date.now() - lastStatusNotifyAt < 3000) return;
+      console.log(`[Status] Polling (last notify ${Date.now() - lastStatusNotifyAt}ms ago)`);
+      try {
+        const status = await device.status.readStatus();
+        console.log(`[Status] Poll result: code=${status.status}`);
+        const current = get().status;
+        if (!current || current.status !== status.status || current.batteryVoltage !== status.batteryVoltage) {
+          set({ status });
+        }
+      } catch (e) {
+        console.warn("[Status] Poll failed:", e);
+      }
+    }, 2000);
+  };
+
+  const subscribeButton = async (device: PokitDevice) => {
     if (buttonUnsub) {
       try { await buttonUnsub(); } catch { /* device may be gone */ }
       buttonUnsub = null;
@@ -102,24 +180,21 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
   };
 
   return {
-    device,
-    connectionState: PokitDevice.isSupported() ? "disconnected" : "unsupported",
-    deviceName: "",
-    characteristics: null,
-    status: null,
-    torchOn: false,
-    error: null,
-    lastMeterReading: null,
-    reconnectAttempt: 0,
+    ...state,
 
     async connect() {
+      const { device, useBridge } = get();
       set({ connectionState: "connecting", error: null, reconnectAttempt: 0 });
+      if (useBridge) {
+        toast.info("Scanning for Pokit devices (6s)...", 6000);
+      }
       try {
         await device.connect();
         set({ connectionState: "connected", deviceName: device.name });
         await get().refreshInfo();
-        await subscribeStatus();
-        await subscribeButton();
+        await subscribeStatus(device);
+        startStatusPoll(device);
+        await subscribeButton(device);
         toast.success(`Connected to ${device.name}`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -128,12 +203,17 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
           error: message,
         });
         if (!/cancelled|user gesture|chooser/i.test(message)) {
-          toast.error(message);
+          if (useBridge && /websocket|failed|refused/i.test(message)) {
+            toast.error("Python Bridge not running. Start it with: python server/pokit_server.py");
+          } else {
+            toast.error(message);
+          }
         }
       }
     },
 
     disconnect() {
+      const { device } = get();
       if (statusUnsub) {
         try { void statusUnsub(); } catch { /* ignore */ }
         statusUnsub = null;
@@ -142,12 +222,17 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
         try { void buttonUnsub(); } catch { /* ignore */ }
         buttonUnsub = null;
       }
+      if (statusPollInterval) {
+        clearInterval(statusPollInterval);
+        statusPollInterval = null;
+      }
       device.disconnect();
       set({ connectionState: "disconnected", characteristics: null, status: null });
       toast.info("Disconnected");
     },
 
     async attemptReconnect() {
+      const { device } = get();
       for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
         if (device.isConnected) return;
         set({ connectionState: "reconnecting", reconnectAttempt: attempt });
@@ -156,8 +241,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
           await device.connection.reconnect();
           set({ connectionState: "connected", deviceName: device.name, reconnectAttempt: 0 });
           await get().refreshInfo();
-          await subscribeStatus();
-          await subscribeButton();
+          await subscribeStatus(device);
+          startStatusPoll(device);
+          await subscribeButton(device);
           toast.success("Reconnected");
           return;
         } catch {
@@ -169,6 +255,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     },
 
     async refreshInfo() {
+      const { device } = get();
       try {
         const [characteristics, status, deviceName] = await Promise.all([
           device.status.readDeviceCharacteristics(),
@@ -182,6 +269,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     },
 
     async flashLed() {
+      const { device } = get();
       try {
         await device.status.flashLed();
         toast.info("Flashed LED");
@@ -193,6 +281,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     },
 
     async toggleTorch() {
+      const { device } = get();
       const next = !get().torchOn;
       try {
         await device.status.setTorch(next);
@@ -206,6 +295,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
     },
 
     async setName(name: string) {
+      const { device } = get();
       try {
         await device.status.setName(name);
         set({ deviceName: name });
@@ -216,6 +306,30 @@ export const useDeviceStore = create<DeviceState>((set, get) => {
 
     setLastMeterReading(r: MeterReading | null) {
       set({ lastMeterReading: r });
+    },
+
+    setAutoFollowSwitch(enabled: boolean) {
+      set({ autoFollowSwitch: enabled });
+    },
+
+    setManualOverride(enabled: boolean) {
+      set({ manualOverride: enabled });
+    },
+
+    setUseBridge(enabled: boolean) {
+      const { device: oldDevice } = get();
+      if (oldDevice.isConnected) {
+        toast.warning("Disconnect before switching backends");
+        return;
+      }
+      // Stop any pending reconnects on the old device
+      oldDevice.disconnect();
+      localStorage.setItem(BRIDGE_KEY, String(enabled));
+      const device = createDevice(enabled);
+      attachListeners(device);
+      const newState: ConnectionState = isBackendAvailable(enabled) ? "disconnected" : "unsupported";
+      set({ device, useBridge: enabled, connectionState: newState });
+      toast.info(enabled ? "Python bridge enabled" : "Web Bluetooth enabled");
     },
   };
 });

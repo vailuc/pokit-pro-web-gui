@@ -7,7 +7,7 @@
 
 import { AbstractPokitService } from "./abstractService";
 import { ByteReader, ByteWriter } from "./codec";
-import type { PokitConnection } from "./connection";
+import type { IPokitConnection } from "./connection";
 import { MultimeterServiceUuids } from "./uuids";
 import {
   MeterMode,
@@ -22,7 +22,7 @@ export interface MultimeterSettings {
 }
 
 export class MultimeterService extends AbstractPokitService {
-  constructor(connection: PokitConnection) {
+  constructor(connection: IPokitConnection) {
     super(connection, MultimeterServiceUuids.service);
   }
 
@@ -39,6 +39,10 @@ export class MultimeterService extends AbstractPokitService {
   }
 
   static parseReading(view: DataView): MeterReading {
+    // status(1) + value(4) + mode(1) + range(1) = 7 bytes
+    if (view.byteLength < 7) {
+      throw new Error(`Meter reading too short: ${view.byteLength} bytes (need >= 7)`);
+    }
     const r = new ByteReader(view);
     return {
       status: r.u8() as MeterStatus,

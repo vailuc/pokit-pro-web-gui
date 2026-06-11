@@ -5,8 +5,27 @@ dist-ssr
 .DS_Store
 .vite
 coverage
+logs/
+
+# Server virtual environment
+server/venv/
 
 # Internal planning docs (keep local, not on GitHub)
+# AI-generated docs (exclude from git)
+docs/aggro-polling.md
+docs/PR-review-action-items.md
+docs/squashing.md
+docs/test.md
+
+# Planning docs we created (now excluded from git, kept locally):
+docs/RIPER-progress.md
+docs/PLAN*.md
+docs/plan-*.md
+docs/plan-settings-system-v2.md
+
+# Legacy planning docs
+docs/plan-settings-system.md
+
 PLAN.md
 PLAN-REVIEW.md
 UX_PLAN.md

@@ -1,6 +1,6 @@
 # Pokit Pro Web GUI
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
 [![License](https://img.shields.io/badge/license-GPL--3.0%20%2F%20Commercial-blue)]()
 
 A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**.
@@ -9,14 +9,49 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
 
+## ⚠️ Important Limitations
+
+### Oscilloscope (DSO) — Known Limitations
+
+The Pokit Pro **does not support true continuous streaming** in any mode (this is a firmware limitation, not a Web Bluetooth issue). The official Pokit app achieves "continuous" by rapidly re-triggering single-shot captures with native Bluetooth APIs.
+
+**Web Bluetooth adds additional constraints:**
+
+- **Notification Gaps**: 135-150ms batching delays in Chromium's Web Bluetooth implementation
+- **No Connection Control**: Cannot set MTU or connection intervals (native apps can)
+- **Firmware Bug**: Beyond ~2800 samples, the device returns stale/repeated data (confirmed in Pokit Pro 1.6.0 changelog: "Fix: DSO sending invalid number of samples in case of BLE timeout")
+
+**Current Workarounds:**
+- Requests for >3000 samples are automatically reduced to 2800
+- UI updates are throttled to `requestAnimationFrame` cadence
+- Continuous mode re-triggers single-shot captures with adjustable window times (2/5/10/20ms)
+
+**Dual Backend Architecture (in progress):**
+This codebase supports **two backends**:
+
+| Backend | Transport | DSO Performance | Use Case |
+|---------|-----------|----------------|----------|
+| **Web Bluetooth** (default) | Browser-native | Limited by 150ms gaps | Quick measurements, portability |
+| **Python Bridge** | WebSocket via `server/` | Native BLE speed | Lab bench, continuous monitoring |
+
+The **Python BLE bridge** (`server/pokit-server.py`) uses `bleak` for native Bluetooth access, bypassing Web Bluetooth's notification batching. It exposes the same Pokit protocol over WebSocket.
+
+### Multimeter — Works Great
+Multimeter mode is **not affected** by these limitations. Live readings work perfectly with Web Bluetooth because they use infrequent notifications (configurable interval, default ~100ms) rather than high-frequency streaming.
+
+### Data Logger — Status Unknown
+Logger mode has not been tested at high sample rates. It may work fine for slow intervals (>1s) but could show similar issues at high frequency.
+
+---
+
 ## Project Status
 
-Early alpha (v0.1.0).
+Early alpha (v0.2.0) — Settings persistence & theme system added.
 
 Core functionality implemented and verified:
 - BLE connection, pairing, and auto-reconnect
 - Multimeter live readings with HOLD/REL/MinMaxAvg
-- Oscilloscope capture with waveform metrics
+- Oscilloscope capture with waveform metrics (with limitations above)
 - Data logger with CSV export
 - IndexedDB measurement history
 
@@ -25,9 +60,10 @@ Still under active development and protocol validation.
 ## Features
 
 - **Multimeter** — live DC/AC voltage, current, resistance, continuity, diode, temperature and capacitance with mode/range/interval controls, HOLD/REL/MinMaxAvg, and continuity beep.
-- **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
+- **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes with adjustable window times, rolling buffer display, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
 - **Data Logger** — interval logging over time with CSV export and auto-save.
 - **Device** — firmware info, limits, live status & battery, flash LED, torch, rename.
+- **Settings & Themes** — persistent settings with dark/light/auto theme support, accent colors, and DSO defaults.
 - **IndexedDB History** — saved measurements with searchable history drawer.
 - **Toast Feedback** — non-blocking status notifications.
 - **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.
@@ -67,7 +103,7 @@ Still under active development and protocol validation.
 - **No iOS / iPadOS / Safari support** — Web Bluetooth is not available on Apple platforms.
 - **Browser permission prompts required** — Chromium will ask for Bluetooth access on first connect.
 - **Host OS Bluetooth stack** — Linux requires BlueZ; Windows and macOS generally work out of the box.
-- **DSO sample reassembly** — relies on `numberOfSamples` from metadata; very large buffers may stream across multiple notifications.
+- **DSO sample count capped at 4096** — the Pokit Pro firmware silently clamps `numberOfSamples` to 4096 regardless of what is requested. Values above this (8192, 16384) are accepted by the GATT write but the device returns 4096 samples, producing repeated identical waveforms. The sample-count selector is therefore limited to 256–4096.
 
 ### Linux / Raspberry Pi notes
 
@@ -93,6 +129,8 @@ chromium-browser --enable-features=WebBluetoothNewPermissionsBackend
 
 ## Getting started
 
+### Quick Start (Web Bluetooth — default)
+
 ```bash
 git clone https://github.com/vailuc/pokit-pro-web-gui.git
 cd pokit-pro-web-gui
@@ -102,6 +140,22 @@ npm run dev
 
 Open the printed `http://localhost:5173`, click **Connect**, and choose your Pokit device from the Chromium device chooser.
 
+### Python Bridge Mode (better DSO performance)
+
+For continuous oscilloscope monitoring without Web Bluetooth's ~150ms notification gaps, use the Python BLE bridge:
+
+```bash
+# One-command launcher (starts both bridge + frontend)
+cd server
+./launch-dev.sh
+```
+
+This starts:
+- **BLE Bridge** on `ws://localhost:8765` (Python backend with native Bluetooth)
+- **Vite Frontend** on `http://localhost:5173`
+
+Then in the browser, click **Settings** → toggle **Use Python Bridge** before connecting.
+
 ## Scripts
 
 | Script | Purpose |
@@ -110,6 +164,7 @@ Open the printed `http://localhost:5173`, click **Connect**, and choose your Pok
 | `npm run build` | Type-check and build for production |
 | `npm run preview` | Preview the production build |
 | `npm test` | Run unit tests (Vitest) |
+| `server/launch-dev.sh` | Start Python bridge + Vite together (dev stack) |
 
 ## Architecture
 

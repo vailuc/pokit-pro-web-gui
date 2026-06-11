@@ -12,7 +12,7 @@
 
 import { AbstractPokitService } from "./abstractService";
 import { ByteReader, ByteWriter } from "./codec";
-import type { PokitConnection } from "./connection";
+import type { IPokitConnection } from "./connection";
 import { DsoServiceUuids } from "./uuids";
 import {
   DsoCommand,
@@ -31,7 +31,7 @@ export interface DsoSettings {
 }
 
 export class DsoService extends AbstractPokitService {
-  constructor(connection: PokitConnection) {
+  constructor(connection: IPokitConnection) {
     super(connection, DsoServiceUuids.service);
   }
 
@@ -51,6 +51,10 @@ export class DsoService extends AbstractPokitService {
   }
 
   static parseMetadata(view: DataView): DsoMetadata {
+    // status(1) + scale(4) + mode(1) + range(1) + window(4) + samples(2) + rate(4) = 17 bytes
+    if (view.byteLength < 17) {
+      throw new Error(`DSO metadata too short: ${view.byteLength} bytes (need >= 17)`);
+    }
     const r = new ByteReader(view);
     return {
       status: r.u8() as DsoStatus,
@@ -103,27 +107,52 @@ export class DsoService extends AbstractPokitService {
  * Accumulates streamed int16 sample packets until the expected count is reached,
  * applying the metadata scale to yield real measurement values.
  */
+const STALE_TIMEOUT_MS = 500; // Abort if no packets arrive for 500ms
+
 export class DsoCaptureBuffer {
   private raw: number[] = [];
+  private lastPushTime = 0;
 
-  constructor(private expected: number, private scale: number) {}
+  constructor(private expected: number, private scale: number) {
+    this.lastPushTime = Date.now();
+  }
 
   reset(expected: number, scale: number): void {
     this.raw = [];
     this.expected = expected;
     this.scale = scale;
+    this.lastPushTime = Date.now();
+  }
+
+  /** Update scale/expected without clearing accumulated samples (for hidden continuous). */
+  updateScale(expected: number, scale: number): void {
+    this.expected = expected;
+    this.scale = scale;
   }
 
   push(samples: number[]): void {
-    this.raw.push(...samples);
+    this.lastPushTime = Date.now();
+    for (let i = 0; i < samples.length && this.raw.length < this.expected; i++) this.raw.push(samples[i]);
   }
 
   get isComplete(): boolean {
     return this.raw.length >= this.expected;
   }
 
+  /** True if no data has arrived within STALE_TIMEOUT_MS (possible dropped packet). */
+  get isStale(): boolean {
+    return !this.isComplete && Date.now() - this.lastPushTime > STALE_TIMEOUT_MS;
+  }
+
   get count(): number {
     return this.raw.length;
+  }
+
+  /** Remove oldest samples, keeping only the last N. For continuous mode. */
+  trim(keep: number): void {
+    if (this.raw.length > keep) {
+      this.raw = this.raw.slice(-keep);
+    }
   }
 
   /** Scaled values (volts/amps). */

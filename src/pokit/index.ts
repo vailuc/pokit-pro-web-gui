@@ -9,3 +9,4 @@ export * from "./multimeterService";
 export * from "./dsoService";
 export * from "./loggerService";
 export * from "./device";
+export * from "./websocketConnection";

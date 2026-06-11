@@ -2,17 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Theme System: CSS Variables for Dark/Light modes and Accent colors
+   Controlled by data-theme and data-accent attributes on <html>
+   ───────────────────────────────────────────────────────────────────────────── */
+
 :root {
   color-scheme: dark;
-  /* Theme foundation — overrideable for custom skins */
-  --color-accent: #ffcc00;
-  --color-accent-dark: #e6b800;
+  
+  /* Dark theme (default) */
   --color-bg: #0a0a0a;
   --color-surface: #171717;
+  --color-surface-elevated: #262626;
   --color-surface-glass: rgba(23, 23, 23, 0.7);
   --color-border: #262626;
+  --color-border-subtle: #1a1a1a;
   --color-text: #f5f5f5;
+  --color-text-secondary: #a3a3a3;
+  --color-text-muted: #737373;
+  
+  /* Semantic colors */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+  
+  /* Accent color - default blue (overridden by data-accent) */
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-light: #60a5fa;
+  --color-accent-dark: #1d4ed8;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #f5f5f5;
+  --color-surface-glass: rgba(255, 255, 255, 0.8);
+  --color-border: #e5e5e5;
+  --color-border-subtle: #f0f0f0;
+  --color-text: #171717;
+  --color-text-secondary: #525252;
   --color-text-muted: #a3a3a3;
+}
+
+/* Accent colors */
+[data-accent="blue"] {
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-light: #60a5fa;
+  --color-accent-dark: #1d4ed8;
+}
+
+[data-accent="red"] {
+  --color-accent: #ef4444;
+  --color-accent-hover: #dc2626;
+  --color-accent-light: #f87171;
+  --color-accent-dark: #b91c1c;
+}
+
+[data-accent="green"] {
+  --color-accent: #22c55e;
+  --color-accent-hover: #16a34a;
+  --color-accent-light: #4ade80;
+  --color-accent-dark: #15803d;
+}
+
+[data-accent="amber"] {
+  --color-accent: #f59e0b;
+  --color-accent-hover: #d97706;
+  --color-accent-light: #fbbf24;
+  --color-accent-dark: #b45309;
+}
+
+[data-accent="purple"] {
+  --color-accent: #a855f7;
+  --color-accent-hover: #9333ea;
+  --color-accent-light: #c084fc;
+  --color-accent-dark: #7e22ce;
+}
+
+/* Legacy compatibility (for existing code) */
+:root {
+  --color-accent-legacy: #ffcc00;
+  --color-accent-dark-legacy: #e6b800;
 }
 
 html,
@@ -36,4 +110,9 @@ body {
 }
 .u-axis {
   color: #a3a3a3;
+}
+
+@keyframes mismatchFlash {
+  0%, 100% { border-color: rgba(250, 204, 21, 0.6); color: #fde047; }
+  50% { border-color: rgba(59, 130, 246, 0.6); color: #93c5fd; }
 }

@@ -1,0 +1,12 @@
+{
+  "_description": "Pokit Pro DSO noise baseline — shorted probes, 10mV range. Update via Calibrate button.",
+  "device": "Pokit Pro",
+  "mode": "DcVoltage",
+  "range": "10 mV",
+  "mean": 0.00011723,
+  "stdDev": 0.001414,
+  "peakToPeak": 0.00808,
+  "samples": 128000,
+  "durationSec": 5,
+  "date": "2026-06-09"
+}

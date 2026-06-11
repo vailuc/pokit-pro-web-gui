@@ -5,22 +5,27 @@
  * individual service objects.
  */
 
-import { PokitConnection } from "./connection";
+import { PokitConnection, type IPokitConnection } from "./connection";
+import { WebSocketPokitConnection } from "./websocketConnection";
 import { StatusService } from "./statusService";
 import { MultimeterService } from "./multimeterService";
 import { DsoService } from "./dsoService";
 import { LoggerService } from "./loggerService";
 
 export class PokitDevice {
-  readonly connection = new PokitConnection();
+  readonly connection: IPokitConnection;
 
   private _status: StatusService | null = null;
   private _multimeter: MultimeterService | null = null;
   private _dso: DsoService | null = null;
   private _logger: LoggerService | null = null;
 
+  constructor(connection?: IPokitConnection) {
+    this.connection = connection ?? new PokitConnection();
+  }
+
   static isSupported(): boolean {
-    return PokitConnection.isAvailable();
+    return PokitConnection.isAvailable() || WebSocketPokitConnection.isAvailable();
   }
 
   get isConnected(): boolean {
