@@ -224,6 +224,21 @@ export function MultimeterView() {
     return { displayValue: formatSi(tared, unit), isGated: false };
   })();
 
+  // Live tare delta indicator: color-coded signal quality
+  const tareDelta = (() => {
+    if (!tareActive || !tareLiveStats || !reading || reading.status === MeterStatus.Error || mode === MeterMode.Continuity) return null;
+    const relOffset = rel && relRef.current !== null ? relRef.current : 0;
+    const centered = Math.abs((reading.value - relOffset) - tareLiveStats.mean);
+    const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+    const threshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+    const ratio = centered / threshold;
+    let color: "green" | "yellow" | "red";
+    if (ratio < 0.33) color = "green";
+    else if (ratio < 0.8) color = "yellow";
+    else color = "red";
+    return { color, delta: centered, threshold, ratio };
+  })();
+
   const statsDisplay = (() => {
     if (!stats.count || mode === MeterMode.Continuity) return null;
     const u = unitForMode(mode);
@@ -352,6 +367,19 @@ export function MultimeterView() {
           {tareActive && (
             <div className="absolute left-4 top-[4.5rem] rounded-full bg-red-600/80 px-2.5 py-0.5 text-xs font-bold text-white">
               Tare {tareSigma}σ
+            </div>
+          )}
+          {tareDelta && (
+            <div
+              className={[
+                "absolute left-4 top-[6.5rem] flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                tareDelta.color === "green" ? "bg-emerald-600/80 text-white" :
+                tareDelta.color === "yellow" ? "bg-amber-500/80 text-black" :
+                "bg-red-600/80 text-white",
+              ].join(" ")}
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
+              Δ{formatSi(tareDelta.delta, unit)}
             </div>
           )}
           <Readout
