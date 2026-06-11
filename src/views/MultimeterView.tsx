@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Readout } from "@/components/Readout";
 import { useDeviceStore } from "@/store/deviceStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { saveHistory } from "@/store/historyStore";
 import { beep } from "@/lib/beep";
 import { toast } from "@/store/toastStore";
@@ -43,7 +44,7 @@ interface LastModes {
 }
 
 export function MultimeterView() {
-  const { device, connectionState, status, autoFollowSwitch, setManualOverride, setLastMeterReading } = useDeviceStore();
+  const { device, connectionState, status, characteristics, autoFollowSwitch, setManualOverride, setLastMeterReading } = useDeviceStore();
   const connected = connectionState === "connected";
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
@@ -56,6 +57,15 @@ export function MultimeterView() {
   const relRef = useRef<number | null>(null);
   const [stats, setStats] = useState<Stats>({ min: Infinity, max: -Infinity, avg: 0, count: 0 });
   const lastShortRef = useRef(false);
+
+  // Tare: statistical noise calibration
+  const [tareActive, setTareActive] = useState(false);
+  const [tareCalibrating, setTareCalibrating] = useState(false);
+  const [tareBaseline, setTareBaseline] = useState<{ mean: number; stdDev: number } | null>(null);
+  const autoCalReadingsRef = useRef<number[]>([]);
+  const autoCalCompleteRef = useRef(false);
+  const { plugins } = useSettingsStore();
+  const tareSigma = plugins.meter.tareSigma;
 
   // Track last-used mode per switch position.
   const [lastModes, setLastModes] = useState<LastModes>({
@@ -90,6 +100,25 @@ export function MultimeterView() {
     lastShortRef.current = false;
   }, [mode, range]);
 
+  // Load tare baseline from localStorage on mode/range change.
+  const deviceMac = characteristics?.macAddress ?? "default";
+  const tareKey = `meterBaseline_${deviceMac}_${mode}_${range}`;
+  useEffect(() => {
+    setTareActive(false);
+    setTareCalibrating(false);
+    setTareBaseline(null);
+    autoCalCompleteRef.current = false;
+    autoCalReadingsRef.current = [];
+    const saved = localStorage.getItem(tareKey);
+    if (saved) {
+      try {
+        const b = JSON.parse(saved);
+        setTareBaseline({ mean: b.mean, stdDev: b.stdDev });
+        setTareActive(true);
+      } catch { /* ignore */ }
+    }
+  }, [mode, range, tareKey]);
+
   // Apply settings + subscribe to live readings whenever config changes.
   useEffect(() => {
     if (!connected) return;
@@ -103,12 +132,32 @@ export function MultimeterView() {
           unsub = await device.multimeter.onReading((r) => {
             if (cancelled) return;
             setLastMeterReading(r);
+
+            // Auto-calibration: collect first 20 readings silently
+            if (!autoCalCompleteRef.current && !tareActive && r.status !== MeterStatus.Error) {
+              autoCalReadingsRef.current.push(r.value);
+              if (autoCalReadingsRef.current.length >= 20) {
+                const vals = autoCalReadingsRef.current;
+                const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / vals.length;
+                const baseline = { mean, stdDev: Math.sqrt(variance), sampleCount: vals.length, date: new Date().toISOString() };
+                setTareBaseline({ mean, stdDev: baseline.stdDev });
+                setTareActive(true);
+                autoCalCompleteRef.current = true;
+                localStorage.setItem(tareKey, JSON.stringify(baseline));
+                toast.success(`Auto-tared ±${formatSi(baseline.stdDev * tareSigma, unit)}`);
+              }
+            }
+
             if (!hold) {
               setReading(r);
               if (r.status !== MeterStatus.Error && mode !== MeterMode.Continuity) {
                 setStats((prev) => {
                   const n = prev.count + 1;
-                  const v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  let v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  if (tareActive && tareBaseline) {
+                    v = v - tareBaseline.mean;
+                  }
                   return {
                     min: Math.min(prev.min, v),
                     max: Math.max(prev.max, v),
@@ -161,13 +210,27 @@ export function MultimeterView() {
     return reading.value;
   })();
 
-  const displayValue = (() => {
-    if (!reading || reading.status === MeterStatus.Error) return `-- ${unit}`.trim();
+  const { displayValue, isGated } = (() => {
+    if (!reading || reading.status === MeterStatus.Error) return { displayValue: `-- ${unit}`.trim(), isGated: false };
     if (mode === MeterMode.Continuity) {
-      return reading.status === MeterStatus.AutoRangeOn ? "OPEN" : "SHORT";
+      return { displayValue: reading.status === MeterStatus.AutoRangeOn ? "OPEN" : "SHORT", isGated: false };
     }
-    const v = rel && relRef.current !== null ? reading.value - relRef.current : reading.value;
-    return formatSi(v, unit);
+
+    // REL offset first
+    const relOffset = rel && relRef.current !== null ? relRef.current : 0;
+    const tared = reading.value - relOffset;
+
+    // Tare: center around calibrated mean, gate within ±Nσ
+    if (tareActive && tareBaseline) {
+      const centered = tared - tareBaseline.mean;
+      const threshold = tareBaseline.stdDev * tareSigma;
+      if (Math.abs(centered) < threshold) {
+        return { displayValue: "0.000", isGated: true };
+      }
+      return { displayValue: formatSi(centered, unit), isGated: false };
+    }
+
+    return { displayValue: formatSi(tared, unit), isGated: false };
   })();
 
   const statsDisplay = (() => {
@@ -214,6 +277,34 @@ export function MultimeterView() {
     } else if (rawValue !== null) {
       relRef.current = rawValue;
       setRel(true);
+    }
+  };
+
+  const handleTare = () => {
+    if (tareActive || tareCalibrating) {
+      // Clear tare
+      setTareActive(false);
+      setTareCalibrating(false);
+      setTareBaseline(null);
+      autoCalCompleteRef.current = true; // stop auto-cal
+      autoCalReadingsRef.current = [];
+      localStorage.removeItem(tareKey);
+      toast.info("Tare cleared");
+    } else {
+      // Manual calibration: collect from current stats window
+      if (stats.count < 5) {
+        toast.error("Need more readings to calibrate");
+        return;
+      }
+      // Use accumulated stats as proxy, or collect fresh
+      setTareCalibrating(true);
+      // Quick calibration from recent readings — in practice we'd collect
+      // a fresh window, but stats.avg gives us a reasonable center.
+      // For better accuracy, do a short collection burst:
+      autoCalCompleteRef.current = false;
+      autoCalReadingsRef.current = [];
+      toast.info("Calibrating… keep probes steady");
+      // Auto-cal will pick up in the next ~20 readings via onReading
     }
   };
 
@@ -264,6 +355,11 @@ export function MultimeterView() {
               REL
             </div>
           )}
+          {tareActive && (
+            <div className="absolute left-4 top-[4.5rem] rounded-full bg-red-600/80 px-2.5 py-0.5 text-xs font-bold text-white">
+              Tare {tareSigma}σ
+            </div>
+          )}
           <Readout
             value={displayValue}
             label={modeLabel(mode)}
@@ -273,26 +369,46 @@ export function MultimeterView() {
                   ? "Auto-range"
                   : reading.status === MeterStatus.Error
                     ? "Error / out of range"
-                    : undefined
+                    : isGated
+                      ? "Gated"
+                      : undefined
                 : connected
                   ? "Waiting for reading…"
                   : "Connect a device to begin"
             }
+            gated={isGated}
           />
         </CardContent>
       </Card>
 
       {/* Function buttons */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="toggle" size="sm" active={hold} onClick={() => setHold((h) => !h)}>
           {hold ? "Release" : "Hold"}
         </Button>
         <Button variant="toggle" size="sm" active={rel} onClick={handleRel}>
           {rel ? "REL On" : "REL"}
         </Button>
+        <Button variant="toggle" size="sm" active={tareActive} onClick={handleTare}>
+          {tareActive ? "Tare On" : tareCalibrating ? "Tare…" : "Tare"}
+        </Button>
         <Button variant="secondary" size="sm" onClick={handleSave} disabled={!connected || !reading || reading.status === MeterStatus.Error}>
           Save
         </Button>
+        {tareActive && (
+          <div className="flex items-center gap-1 text-xs text-neutral-400">
+            <span>σ</span>
+            {[1, 2, 3, 4].map((s) => (
+              <button
+                key={s}
+                className={`h-6 w-6 rounded text-center leading-6 ${tareSigma === s ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}
+                onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareSigma", s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 3 switch-position banks */}
