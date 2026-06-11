@@ -57,6 +57,93 @@ ALL_SERVICES = [
 # ── Config ──────────────────────────────────────────────────────────────────
 CONFIG_DIR = Path.home() / ".config" / "pokit-bridge"
 CONFIG_FILE = CONFIG_DIR / "last_device.json"
+
+# ── Settings Persistence ──────────────────────────────────────────────────────
+def get_settings_path() -> Path:
+    """Single source of truth for settings file path."""
+    if os.environ.get("APP_SETTINGS"):
+        return Path(os.environ["APP_SETTINGS"])
+    return Path.home() / ".config" / "pokit-bridge" / "settings.json"
+
+SETTINGS_FILE = get_settings_path()
+
+DEFAULT_SETTINGS = {
+    "version": 1,
+    "lastModified": 0,
+    "ui": {
+        "theme": "dark",
+        "accent": "blue",
+        "startupTab": "meter",
+        "connectionMode": "bridge",
+        "bridgeUrl": "ws://localhost:8765",
+        "sidebarCollapsed": False
+    },
+    "plugins": {
+        "dso": {"version": 1, "defaultWindowMs": 50, "defaultMode": "one-shot", "performanceHints": True},
+        "meter": {"version": 1, "autoRange": True, "operationalWarnings": True},
+        "logger": {"version": 1, "defaultSampleRate": 10, "defaultDuration": 60},
+        "device": {"version": 1, "showAdvanced": False}
+    }
+}
+
+class SettingsManager:
+    """Manages persistent settings with atomic file operations."""
+    
+    def __init__(self, settings_path: Path = None):
+        self.settings_path = settings_path or get_settings_path()
+        self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+        self._settings = self._load()
+    
+    def _load(self) -> dict:
+        """Load settings from disk, merging with defaults."""
+        if not self.settings_path.exists():
+            logger.info(f"[Settings] No settings file found, using defaults")
+            return DEFAULT_SETTINGS.copy()
+        try:
+            with open(self.settings_path, 'r') as f:
+                loaded = json.load(f)
+                # Merge with defaults for any missing keys
+                merged = self._deep_merge(DEFAULT_SETTINGS.copy(), loaded)
+                logger.info(f"[Settings] Loaded from {self.settings_path}")
+                return merged
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"[Settings] Failed to load: {e}, using defaults")
+            return DEFAULT_SETTINGS.copy()
+    
+    def _save(self) -> None:
+        """Atomic write: tmp → flush → fsync → replace."""
+        self._settings["lastModified"] = int(time.time())
+        tmp_path = f"{self.settings_path}.tmp"
+        try:
+            with open(tmp_path, 'w') as f:
+                json.dump(self._settings, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.settings_path)
+            logger.info(f"[Settings] Saved to {self.settings_path}")
+        except IOError as e:
+            logger.error(f"[Settings] Failed to save: {e}")
+            raise
+    
+    def _deep_merge(self, base: dict, update: dict) -> dict:
+        """Recursive merge, preserving nested structures."""
+        for key, value in update.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                base[key] = self._deep_merge(base[key], value)
+            else:
+                base[key] = value
+        return base
+    
+    def get(self) -> dict:
+        """Return copy of current settings."""
+        return self._settings.copy()
+    
+    def patch(self, patch: dict) -> dict:
+        """Apply shallow merge patch and save."""
+        self._settings = self._deep_merge(self._settings, patch)
+        self._save()
+        return self._settings.copy()
+
 MAX_RECONNECT_RETRIES = 10
 RECONNECT_BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 10000, 10000, 10000, 10000, 10000]
 WS_HOST = os.environ.get("POKIT_WS_HOST", "0.0.0.0")
@@ -94,6 +181,9 @@ class PokitBridgeServer:
         self._ws_clients: set[websockets.WebSocketServerProtocol] = set()
         self._active_subscriptions: dict[str, str] = {}   # char_uuid -> service_uuid
         self._req_counter = 0
+        
+        # Settings manager for persistent user preferences
+        self.settings_manager = SettingsManager()
 
     # ── Config persistence ──────────────────────────────────────────────────
     def _load_config(self) -> Optional[dict]:
@@ -541,6 +631,33 @@ class PokitBridgeServer:
                     "req_id": req_id,
                     "characteristic": msg["characteristic"],
                 }))
+
+            elif msg_type == "settings_get":
+                """Return current settings from file."""
+                settings = self.settings_manager.get()
+                await ws.send(json.dumps({
+                    "type": "settings",
+                    "req_id": req_id,
+                    "data": settings
+                }))
+
+            elif msg_type == "settings_set":
+                """Apply settings patch and save to file."""
+                patch = msg.get("patch", {})
+                try:
+                    new_settings = self.settings_manager.patch(patch)
+                    await ws.send(json.dumps({
+                        "type": "settings_ok",
+                        "req_id": req_id
+                    }))
+                    logger.info(f"[Settings] Updated via WebSocket")
+                except Exception as e:
+                    logger.error(f"[Settings] Failed to save: {e}")
+                    await ws.send(json.dumps({
+                        "type": "settings_error",
+                        "req_id": req_id,
+                        "message": str(e)
+                    }))
 
             else:
                 logger.warning(f"Unknown message type: {msg_type}")

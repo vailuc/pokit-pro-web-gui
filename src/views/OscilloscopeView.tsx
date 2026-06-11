@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Waveform } from "@/components/Waveform";
 import { useDeviceStore } from "@/store/deviceStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { saveHistory } from "@/store/historyStore";
 import { toast } from "@/store/toastStore";
 import {
@@ -32,8 +33,14 @@ const DSO_MODES = [
 
 export function OscilloscopeView() {
   const { device, connectionState, characteristics, status, useBridge } = useDeviceStore();
+  const { plugins } = useSettingsStore();
   const connected = connectionState === "connected";
   const deviceMac = characteristics?.macAddress || "default";
+
+  // Read DSO defaults from settings
+  const dsoDefaults = plugins.dso;
+  const defaultContinuous = dsoDefaults.defaultMode === "continuous";
+  const defaultWindowMs = dsoDefaults.defaultWindowMs;
 
   const [mode, setMode] = useState<MeterMode>(MeterMode.DcVoltage);
   const [range, setRange] = useState<number>(5); // 10V default in DsoRanges
@@ -42,14 +49,14 @@ export function OscilloscopeView() {
   const [windowMs, setWindowMs] = useState<number>(10);
   const [numSamples, setNumSamples] = useState<number>(1024);
   const [continuousDelayMs, setContinuousDelayMs] = useState<number>(500); // Gap between captures in continuous mode
-  const [continuousWindowMs, setContinuousWindowMs] = useState<number>(5); // Window time for continuous mode (2, 5, 10, 20ms)
+  const [continuousWindowMs, setContinuousWindowMs] = useState<number>(defaultWindowMs); // Window time from settings
 
   const [meta, setMeta] = useState<DsoMetadata | null>(null);
   const [values, setValues] = useState<number[]>([]);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(false); // Track running state for restart timer checks
-  const [continuous, setContinuous] = useState(false);
-  const continuousRef = useRef(false);
+  const [continuous, setContinuous] = useState(defaultContinuous); // Mode from settings
+  const continuousRef = useRef(defaultContinuous);
   const bufferRef = useRef<DsoCaptureBuffer | null>(null);
   const pendingRestartRef = useRef(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,7 +68,7 @@ export function OscilloscopeView() {
   const lastPacketTimeRef = useRef<number>(Date.now()); // For stall detection - init to now to prevent immediate stall
   const samplesReceivedRef = useRef<number>(0); // Track samples for event-driven restart (decoupled from buffer)
   const effectiveNumSamplesRef = useRef<number>(numSamples); // Keep ref in sync for sample handler
-  const continuousWindowMsRef = useRef<number>(5); // Keep ref in sync for sample handler
+  const continuousWindowMsRef = useRef<number>(defaultWindowMs); // Keep ref in sync for sample handler
 
   // Hidden continuous: internally chunk large single captures
   const hiddenContinuousRef = useRef(false);
@@ -732,27 +739,22 @@ export function OscilloscopeView() {
                           { value: 5, label: "5 ms (128 samples)" },
                           { value: 10, label: "10 ms (256 samples)" },
                           { value: 20, label: "20 ms (512 samples)" },
-                          { value: 50, label: "50 ms (1,280 samples)" },
+                          { value: 50, label: "50 ms 🌐 (1,280 samples)" },
                         ]
-                      : // Web Bluetooth: Chromium IPC limit (~150ms practical minimum)
+                      : // Web Bluetooth: Color-coded performance indicators
                         [
-                          { value: 10, label: "10 ms ⚡ (256 samples)" },
-                          { value: 20, label: "20 ms (512 samples)" },
-                          { value: 50, label: "50 ms (1,280 samples)" },
+                          { value: 10, label: "10 ms 🔴 (256 samples)" },
+                          { value: 20, label: "20 ms 🔴 (512 samples)" },
+                          { value: 35, label: "35 ms 🟡 (896 samples)" },
+                          { value: 50, label: "50 ms 🌐 (1,280 samples)" },
                           { value: 100, label: "100 ms (2,560 samples)" },
-                          { value: 200, label: "200 ms 🌐 (5,120 samples)" },
+                          { value: 200, label: "200 ms (5,120 samples)" },
                         ]
                   }
                   onValueChange={(v) => setContinuousWindowMs(Number(v))}
                   className="w-full"
                 />
               </Field>
-              {/* Web Bluetooth performance warning */}
-              {!useBridge && continuousWindowMs < 50 && (
-                <div className="mt-2 rounded bg-amber-900/30 border border-amber-700 px-3 py-2 text-sm text-amber-200">
-                  ⚠️ <strong>Web Bluetooth Limit:</strong> Windows below 50ms may be unstable due to browser BLE batching (~150ms). Use Python Bridge for faster captures.
-                </div>
-              )}
               <Field label={`Refresh delay: ${Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)} ms (~${(1000 / Math.max(continuousDelayMs, MIN_RESTART_DELAY_MS)).toFixed(1)} fps)`}>
                 <input
                   type="range"

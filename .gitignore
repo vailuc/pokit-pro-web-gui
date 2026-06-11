@@ -17,9 +17,14 @@ docs/PR-review-action-items.md
 docs/squashing.md
 docs/test.md
 
-# Planning docs we created (tracked normally):
-# docs/RIPER-progress.md
-# docs/plan-*.md
+# Planning docs we created (now excluded from git, kept locally):
+docs/RIPER-progress.md
+docs/PLAN*.md
+docs/plan-*.md
+docs/plan-settings-system-v2.md
+
+# Legacy planning docs
+docs/plan-settings-system.md
 
 PLAN.md
 PLAN-REVIEW.md

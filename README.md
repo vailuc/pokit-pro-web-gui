@@ -1,6 +1,6 @@
 # Pokit Pro Web GUI
 
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
 [![License](https://img.shields.io/badge/license-GPL--3.0%20%2F%20Commercial-blue)]()
 
 A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/), talking directly to the device over **Web Bluetooth**.
@@ -46,7 +46,7 @@ Logger mode has not been tested at high sample rates. It may work fine for slow 
 
 ## Project Status
 
-Early alpha (v0.1.0).
+Early alpha (v0.2.0) — Settings persistence & theme system added.
 
 Core functionality implemented and verified:
 - BLE connection, pairing, and auto-reconnect
@@ -63,6 +63,7 @@ Still under active development and protocol validation.
 - **Oscilloscope (DSO)** — triggered or free-running capture with a uPlot waveform, one-shot/continuous modes with adjustable window times, rolling buffer display, and computed metrics (Vpp, RMS, mean, frequency, period, duty cycle).
 - **Data Logger** — interval logging over time with CSV export and auto-save.
 - **Device** — firmware info, limits, live status & battery, flash LED, torch, rename.
+- **Settings & Themes** — persistent settings with dark/light/auto theme support, accent colors, and DSO defaults.
 - **IndexedDB History** — saved measurements with searchable history drawer.
 - **Toast Feedback** — non-blocking status notifications.
 - **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.

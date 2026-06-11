@@ -238,6 +238,19 @@ export class WebSocketPokitConnection {
 
       this.ws.onopen = () => {
         console.log("[WS] Connected to Pokit bridge server");
+        
+        // Sync settings from bridge on connect
+        import("@/store/settingsStore").then(({ useSettingsStore }) => {
+          const store = useSettingsStore.getState();
+          if (store.syncFromBridge && this.ws) {
+            store.syncFromBridge((msg) => {
+              if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify(msg));
+              }
+            });
+          }
+        });
+        
         resolve();
       };
 
@@ -305,7 +318,19 @@ export class WebSocketPokitConnection {
       return;
     }
 
-    // 4. Server errors
+    // 4. Settings messages (forward to settings store)
+    if (type === "settings" || type === "settings_ok" || type === "settings_error") {
+      // Import dynamically to avoid circular dependency
+      import("@/store/settingsStore").then(({ useSettingsStore }) => {
+        const store = useSettingsStore.getState();
+        if (store.handleSettingsMessage) {
+          store.handleSettingsMessage(msg);
+        }
+      });
+      return;
+    }
+
+    // 5. Server errors
     if (type === "ble_error") {
       console.error("[WS] Server error:", msg.error);
       return;
