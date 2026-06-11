@@ -259,6 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       handleSettingsMessage: (message) => {
         const msg = message as { type: string; req_id?: number; data?: unknown; message?: string };
+        console.log(`[Settings] handleSettingsMessage: type=${msg.type}, req_id=${msg.req_id}`);
 
         // Handle responses to pending requests AND apply settings data
         if (
@@ -267,9 +268,11 @@ export const useSettingsStore = create<SettingsState>()(
           msg.type === "settings_error"
         ) {
           const reqId = msg.req_id;
+          console.log(`[Settings] Looking for req_id=${reqId}, pending=${Array.from(pendingRequests.keys())}`);
           
           // Resolve pending request if present
           if (reqId && pendingRequests.has(reqId)) {
+            console.log(`[Settings] Found pending request ${reqId}, resolving`);
             const pending = pendingRequests.get(reqId)!;
             pendingRequests.delete(reqId);
 
@@ -278,6 +281,8 @@ export const useSettingsStore = create<SettingsState>()(
             } else {
               pending.resolve(msg);
             }
+          } else {
+            console.log(`[Settings] No pending request found for req_id=${reqId}`);
           }
           
           // Apply settings data from server (for settings_get response)
