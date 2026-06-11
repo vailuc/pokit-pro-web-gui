@@ -47,6 +47,7 @@ export function OscilloscopeView() {
   const [meta, setMeta] = useState<DsoMetadata | null>(null);
   const [values, setValues] = useState<number[]>([]);
   const [running, setRunning] = useState(false);
+  const runningRef = useRef(false); // Track running state for restart timer checks
   const [continuous, setContinuous] = useState(false);
   const continuousRef = useRef(false);
   const bufferRef = useRef<DsoCaptureBuffer | null>(null);
@@ -81,7 +82,10 @@ export function OscilloscopeView() {
   // const MAX_IN_FLIGHT = 2; // 2 concurrent captures for overlap
   // const OVERLAP_THRESHOLD = 0.75; // Start next at 75% completion
 
-  // Keep ref in sync with state so timeout callback sees latest value
+  // Keep refs in sync with state so timeout callbacks see latest values
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
   useEffect(() => {
     continuousRef.current = continuous;
   }, [continuous]);
@@ -328,7 +332,7 @@ export function OscilloscopeView() {
               if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
               restartTimeoutRef.current = setTimeout(() => {
                 restartTimeoutRef.current = null;
-                if (!cancelled && continuousRef.current) {
+                if (!cancelled && runningRef.current && continuousRef.current) {
                   void start(true);
                 }
               }, delay);
@@ -376,7 +380,7 @@ export function OscilloscopeView() {
             if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
             restartTimeoutRef.current = setTimeout(() => {
               restartTimeoutRef.current = null;
-              if (!cancelled && continuousRef.current) {
+              if (!cancelled && runningRef.current && continuousRef.current) {
                 void start(true);
               }
             }, 200);
@@ -576,6 +580,8 @@ export function OscilloscopeView() {
   const stop = () => {
     pendingRestartRef.current = false;
     hiddenContinuousRef.current = false;
+    // Note: Don't clear continuousRef.current here - it must match the UI toggle state
+    // Restart timers check continuousRef, so new restarts won't be scheduled
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
       restartTimeoutRef.current = null;
@@ -599,7 +605,7 @@ export function OscilloscopeView() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
+    <div className="grid gap-4 lg:grid-cols-[1fr_minmax(300px,35%)]">
       <Card className="relative">
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Waveform</CardTitle>
