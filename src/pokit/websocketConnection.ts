@@ -279,13 +279,17 @@ export class WebSocketPokitConnection {
       this.ws.onclose = () => {
         console.log("[WS] Disconnected");
         this._setState("disconnected");
+        import("@/store/settingsStore").then(({ useSettingsStore }) => {
+          useSettingsStore.getState().setSender(() => {}); // No-op sender
+          useSettingsStore.setState({ isSynced: false });
+          console.log("[Settings] Bridge disconnected — switched to local-only");
+        });
       };
     });
   }
 
   private _onMessage(msg: Record<string, unknown>): void {
     const type = msg.type as string;
-    console.log(`[WS] _onMessage received: type=${type}, req_id=${msg.req_id}`);
 
     // 1. Resolve pending requests
     const reqId = msg.req_id as number | undefined;
@@ -329,11 +333,9 @@ export class WebSocketPokitConnection {
 
     // 4. Settings messages (forward to settings store)
     if (type === "settings" || type === "settings_ok" || type === "settings_error") {
-      console.log(`[WS] Routing ${type} to settings store:`, msg);
       // Import dynamically to avoid circular dependency
       import("@/store/settingsStore").then(({ useSettingsStore }) => {
         const store = useSettingsStore.getState();
-        console.log(`[WS] Store has handleSettingsMessage:`, !!store.handleSettingsMessage);
         if (store.handleSettingsMessage) {
           store.handleSettingsMessage(msg);
         }
