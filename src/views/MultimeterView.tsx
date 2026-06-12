@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { Readout } from "@/components/Readout";
 import { useDeviceStore } from "@/store/deviceStore";
+import { useSettingsStore } from "@/store/settingsStore";
 import { saveHistory } from "@/store/historyStore";
 import { beep } from "@/lib/beep";
 import { toast } from "@/store/toastStore";
@@ -57,6 +58,19 @@ export function MultimeterView() {
   const [stats, setStats] = useState<Stats>({ min: Infinity, max: -Infinity, avg: 0, count: 0 });
   const lastShortRef = useRef(false);
 
+  // Adaptive Tare: rolling window noise floor
+  const [tareActive, setTareActive] = useState(false);
+  const tareWindowRef = useRef<number[]>([]);
+  const [tareLiveStats, setTareLiveStats] = useState<{ mean: number; range: number; count: number } | null>(null);
+  const { plugins } = useSettingsStore();
+  const tareSigma = plugins.meter.tareSigma;
+  const tareDeep = plugins.meter.tareDeep;
+  const TARE_WINDOW_SIZE = 10;
+  const DEEP_THRESHOLD = 0.2; // 200 mV — catches finger-touch coupling
+  const TARE_SNAPSHOT_KEY = "meterTareSnapshot";
+
+  const [tareSnapshotAvailable, setTareSnapshotAvailable] = useState(false);
+
   // Track last-used mode per switch position.
   const [lastModes, setLastModes] = useState<LastModes>({
     V: MeterMode.DcVoltage,
@@ -90,6 +104,33 @@ export function MultimeterView() {
     lastShortRef.current = false;
   }, [mode, range]);
 
+  // Reset adaptive tare window on mode/range change.
+  // If tareAutoRestore is on, check for saved snapshot.
+  useEffect(() => {
+    tareWindowRef.current = [];
+    setTareLiveStats(null);
+    setTareActive(false);
+    if (plugins.meter.tareAutoRestore) {
+      try {
+        const saved = localStorage.getItem(TARE_SNAPSHOT_KEY);
+        if (saved) {
+          const snap = JSON.parse(saved);
+          if (snap.mode === mode && snap.range === range) {
+            setTareSnapshotAvailable(true);
+          } else {
+            setTareSnapshotAvailable(false);
+          }
+        } else {
+          setTareSnapshotAvailable(false);
+        }
+      } catch {
+        setTareSnapshotAvailable(false);
+      }
+    } else {
+      setTareSnapshotAvailable(false);
+    }
+  }, [mode, range, plugins.meter.tareAutoRestore]);
+
   // Apply settings + subscribe to live readings whenever config changes.
   useEffect(() => {
     if (!connected) return;
@@ -103,12 +144,33 @@ export function MultimeterView() {
           unsub = await device.multimeter.onReading((r) => {
             if (cancelled) return;
             setLastMeterReading(r);
+
+            // Adaptive tare: maintain rolling window of recent readings
+            if (tareActive && mode !== MeterMode.Continuity && r.status !== MeterStatus.Error && Number.isFinite(r.value)) {
+              const window = tareWindowRef.current;
+              // When REL is active, collect REL-adjusted values so window
+              // baseline matches what the user sees. Avoids double-counting.
+              const windowValue = rel && relRef.current !== null ? r.value - relRef.current : r.value;
+              window.push(windowValue);
+              if (window.length > TARE_WINDOW_SIZE) window.shift();
+              if (window.length >= 3) {
+                const mean = window.reduce((a: number, b: number) => a + b, 0) / window.length;
+                const min = Math.min(...window);
+                const max = Math.max(...window);
+                setTareLiveStats({ mean, range: max - min, count: window.length });
+              }
+            }
+
             if (!hold) {
               setReading(r);
               if (r.status !== MeterStatus.Error && mode !== MeterMode.Continuity) {
                 setStats((prev) => {
                   const n = prev.count + 1;
-                  const v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  let v = relRef.current !== null ? r.value - relRef.current : r.value;
+                  // Apply tare baseline to stats for consistency with display
+                  if (tareActive && tareLiveStats) {
+                    v = v - tareLiveStats.mean;
+                  }
                   return {
                     min: Math.min(prev.min, v),
                     max: Math.max(prev.max, v),
@@ -161,23 +223,59 @@ export function MultimeterView() {
     return reading.value;
   })();
 
-  const displayValue = (() => {
-    if (!reading || reading.status === MeterStatus.Error) return `-- ${unit}`.trim();
+  const { displayValue, isGated } = (() => {
+    if (!reading || reading.status === MeterStatus.Error) return { displayValue: `-- ${unit}`.trim(), isGated: false };
     if (mode === MeterMode.Continuity) {
-      return reading.status === MeterStatus.AutoRangeOn ? "OPEN" : "SHORT";
+      return { displayValue: reading.status === MeterStatus.AutoRangeOn ? "OPEN" : "SHORT", isGated: false };
     }
-    const v = rel && relRef.current !== null ? reading.value - relRef.current : reading.value;
-    return formatSi(v, unit);
+
+    // REL offset first
+    const relOffset = rel && relRef.current !== null ? relRef.current : 0;
+    const tared = reading.value - relOffset;
+
+    // Adaptive Tare: gate within observed noise range of rolling window
+    if (tareActive && tareLiveStats) {
+      const centered = tared - tareLiveStats.mean;
+      const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+      const effectiveThreshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+      if (Math.abs(centered) < effectiveThreshold) {
+        return { displayValue: "0.000", isGated: true };
+      }
+      return { displayValue: formatSi(centered, unit), isGated: false };
+    }
+
+    return { displayValue: formatSi(tared, unit), isGated: false };
+  })();
+
+  // Live tare delta indicator: color-coded signal quality
+  const tareDelta = (() => {
+    if (!tareActive || !tareLiveStats || !reading || reading.status === MeterStatus.Error || mode === MeterMode.Continuity) return null;
+    const relOffset = rel && relRef.current !== null ? relRef.current : 0;
+    const centered = Math.abs((reading.value - relOffset) - tareLiveStats.mean);
+    const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+    const threshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+    const ratio = centered / threshold;
+    let color: "green" | "yellow" | "red";
+    if (ratio < 0.33) color = "green";
+    else if (ratio < 0.8) color = "yellow";
+    else color = "red";
+    return { color, delta: centered, threshold, ratio };
   })();
 
   const statsDisplay = (() => {
     if (!stats.count || mode === MeterMode.Continuity) return null;
     const u = unitForMode(mode);
-    return [
+    const items = [
       { label: "Min", value: formatSi(stats.min, u) },
       { label: "Max", value: formatSi(stats.max, u) },
       { label: "Avg", value: formatSi(stats.avg, u) },
     ];
+    if (tareActive && tareLiveStats) {
+      const noiseThreshold = (tareLiveStats.range / 2) * tareSigma;
+      const effectiveThreshold = tareDeep ? Math.max(noiseThreshold, DEEP_THRESHOLD) : noiseThreshold;
+      items.push({ label: "Floor", value: `±${formatSi(effectiveThreshold, u)}` });
+    }
+    return items;
   })();
 
   // Auto-follow: only trigger when switch position CHANGES, not on every status update.
@@ -217,22 +315,84 @@ export function MultimeterView() {
     }
   };
 
+  const handleTare = () => {
+    if (tareActive) {
+      // Save snapshot before clearing if autoRestore is enabled
+      if (plugins.meter.tareAutoRestore && tareLiveStats) {
+        const snapshot = {
+          mode,
+          range,
+          window: tareWindowRef.current.slice(),
+          mean: tareLiveStats.mean,
+          rangeValue: tareLiveStats.range,
+          count: tareLiveStats.count,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(TARE_SNAPSHOT_KEY, JSON.stringify(snapshot));
+        setTareSnapshotAvailable(true);
+      }
+      setTareActive(false);
+      tareWindowRef.current = [];
+      setTareLiveStats(null);
+      toast.info("Tare cleared");
+    } else {
+      setTareActive(true);
+      tareWindowRef.current = [];
+      setTareLiveStats(null);
+      toast.info("Tare active — collecting noise floor…");
+    }
+  };
+
+  const handleRestoreTare = () => {
+    try {
+      const saved = localStorage.getItem(TARE_SNAPSHOT_KEY);
+      if (!saved) return;
+      const snap = JSON.parse(saved);
+      if (snap.mode !== mode || snap.range !== range) {
+        toast.error("Snapshot was for a different mode/range");
+        return;
+      }
+      tareWindowRef.current = snap.window || [];
+      setTareLiveStats({
+        mean: snap.mean,
+        range: snap.rangeValue,
+        count: snap.count,
+      });
+      setTareActive(true);
+      setTareSnapshotAvailable(false);
+      toast.success(`Restored tare (${snap.count} samples)`);
+    } catch {
+      toast.error("Failed to restore tare");
+    }
+  };
+
   const handleSave = async () => {
     if (!reading || reading.status === MeterStatus.Error) return;
     const name = `${modeLabel(mode)} ${new Date().toLocaleTimeString()}`;
+    const noiseThreshold = tareActive && tareLiveStats
+      ? (tareLiveStats.range / 2) * tareSigma
+      : null;
+    const effectiveThreshold = tareActive && tareLiveStats
+      ? (tareDeep ? Math.max(noiseThreshold!, DEEP_THRESHOLD) : noiseThreshold!)
+      : null;
     await saveHistory("meter", name, {
       value: displayValue,
       mode: modeLabel(mode),
       unit,
       raw: reading.value,
       range: currentRangeLabel,
+      tare: tareActive
+        ? {
+            active: true,
+            sigma: tareSigma,
+            deep: tareDeep,
+            noiseThreshold,
+            effectiveThreshold,
+            windowSize: tareLiveStats?.count ?? 0,
+          }
+        : undefined,
     });
     toast.success("Saved to history");
-  };
-
-  const bankActive = (bank: "V" | "A" | "Ω") => {
-    if (!switchPos || switchPos === "idle" || switchPos === "logger") return false;
-    return switchPos === bank;
   };
 
   return (
@@ -264,6 +424,24 @@ export function MultimeterView() {
               REL
             </div>
           )}
+          {tareActive && (
+            <div className="absolute left-4 top-[4.5rem] rounded-full bg-red-600/80 px-2.5 py-0.5 text-xs font-bold text-white">
+              Tare {tareSigma}σ
+            </div>
+          )}
+          {tareDelta && (
+            <div
+              className={[
+                "absolute left-4 top-[6.5rem] flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                tareDelta.color === "green" ? "bg-emerald-600/80 text-white" :
+                tareDelta.color === "yellow" ? "bg-amber-500/80 text-black" :
+                "bg-red-600/80 text-white",
+              ].join(" ")}
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
+              Δ{formatSi(tareDelta.delta, unit)}
+            </div>
+          )}
           <Readout
             value={displayValue}
             label={modeLabel(mode)}
@@ -273,52 +451,64 @@ export function MultimeterView() {
                   ? "Auto-range"
                   : reading.status === MeterStatus.Error
                     ? "Error / out of range"
-                    : undefined
+                    : isGated
+                      ? "Gated"
+                      : undefined
                 : connected
                   ? "Waiting for reading…"
                   : "Connect a device to begin"
             }
+            gated={isGated}
           />
         </CardContent>
       </Card>
 
       {/* Function buttons */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="toggle" size="sm" active={hold} onClick={() => setHold((h) => !h)}>
           {hold ? "Release" : "Hold"}
         </Button>
         <Button variant="toggle" size="sm" active={rel} onClick={handleRel}>
           {rel ? "REL On" : "REL"}
         </Button>
+        <Button variant="toggle" size="sm" active={tareActive} onClick={handleTare}>
+          {tareActive ? "Tare On" : "Tare"}
+        </Button>
+        {!tareActive && tareSnapshotAvailable && (
+          <Button variant="secondary" size="sm" onClick={handleRestoreTare}>
+            Restore
+          </Button>
+        )}
         <Button variant="secondary" size="sm" onClick={handleSave} disabled={!connected || !reading || reading.status === MeterStatus.Error}>
           Save
         </Button>
+        {tareActive && (
+          <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <div className="flex items-center gap-1">
+              <span>σ</span>
+              {[1, 2, 3, 4].map((s) => (
+                <button
+                  key={s}
+                  className={`h-6 w-6 rounded text-center leading-6 ${tareSigma === s ? "bg-red-600 text-white" : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"}`}
+                  onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareSigma", s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button
+              className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${tareDeep ? "bg-amber-600 text-white" : "bg-neutral-800 text-neutral-500 hover:bg-neutral-700"}`}
+              onClick={() => useSettingsStore.getState().updatePlugin("meter", "tareDeep", !tareDeep)}
+              title="Extend gate to catch finger-touch / environmental coupling (~200mV)"
+            >
+              Deep
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 3 switch-position banks */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <ModeBank
-          title="V"
-          modes={V_MODES}
-          active={bankActive("V")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-        <ModeBank
-          title="A"
-          modes={A_MODES}
-          active={bankActive("A")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-        <ModeBank
-          title="Ω"
-          modes={OHM_MODES}
-          active={bankActive("Ω")}
-          currentMode={mode}
-          onSelect={handleModeClick}
-        />
-      </div>
+      {/* Unified mode selector bar */}
+      <ModeBar currentMode={mode} onSelect={handleModeClick} switchPos={switchPos} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -360,43 +550,46 @@ export function MultimeterView() {
   );
 }
 
-function ModeBank({
-  title,
-  modes,
-  active,
+function ModeBar({
   currentMode,
   onSelect,
+  switchPos,
 }: {
-  title: string;
-  modes: MeterMode[];
-  active: boolean;
   currentMode: MeterMode;
   onSelect: (m: MeterMode) => void;
+  switchPos: string | null;
 }) {
+  const banks: { label: string; modes: MeterMode[]; key: "V" | "A" | "Ω" }[] = [
+    { label: "V", modes: V_MODES, key: "V" },
+    { label: "A", modes: A_MODES, key: "A" },
+    { label: "Ω", modes: OHM_MODES, key: "Ω" },
+  ];
+
   return (
-    <Card
-      className={[
-        "transition-colors",
-        active
-          ? "border-teal-500/50 bg-teal-950/10"
-          : "border-neutral-800 opacity-60",
-      ].join(" ")}
-    >
-      <CardHeader className="pb-2">
-        <CardTitle className={active ? "text-teal-400" : "text-neutral-500"}>
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        {modes.map((m) => (
-          <Button
-            key={m}
-            size="sm"
-            active={currentMode === m}
-            onClick={() => onSelect(m)}
-          >
-            {modeLabel(m)}
-          </Button>
+    <Card className="border-neutral-800">
+      <CardContent className="flex flex-wrap items-center gap-2 py-3">
+        {banks.map((bank, bankIdx) => (
+          <div key={bank.key} className="flex items-center gap-1">
+            {bankIdx > 0 && <div className="mx-1 h-6 w-px bg-neutral-700" />}
+            <span
+              className={[
+                "mr-1 text-xs font-bold",
+                switchPos === bank.key ? "text-teal-400" : "text-neutral-600",
+              ].join(" ")}
+            >
+              {bank.label}
+            </span>
+            {bank.modes.map((m) => (
+              <Button
+                key={m}
+                size="sm"
+                active={currentMode === m}
+                onClick={() => onSelect(m)}
+              >
+                {modeLabel(m)}
+              </Button>
+            ))}
+          </div>
         ))}
       </CardContent>
     </Card>

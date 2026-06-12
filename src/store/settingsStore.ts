@@ -34,6 +34,9 @@ interface PluginSettings {
     version: number;
     autoRange: boolean;
     operationalWarnings: boolean;
+    tareSigma: number;
+    tareDeep: boolean;
+    tareAutoRestore: boolean;
   };
   logger: {
     version: number;
@@ -88,7 +91,7 @@ const DEFAULT_SETTINGS: SettingsEnvelope = {
   },
   plugins: {
     dso: { version: 1, defaultWindowMs: 50, defaultMode: "one-shot", performanceHints: true },
-    meter: { version: 1, autoRange: true, operationalWarnings: true },
+    meter: { version: 1, autoRange: true, operationalWarnings: true, tareSigma: 2, tareDeep: false, tareAutoRestore: false },
     logger: { version: 1, defaultSampleRate: 10, defaultDuration: 60 },
     device: { version: 1, showAdvanced: false },
   },
