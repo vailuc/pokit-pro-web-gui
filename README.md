@@ -2,6 +2,7 @@
 
 [![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
 [![License](https://img.shields.io/badge/license-GPL--3.0%20%2F%20Commercial-blue)]()
+-- WARNING:  ti abandoned this repo as it is; it has been refactored as an addon into a upcoming IDE for all my tools. --
 
 A browser-based multimeter, oscilloscope, and data logger for the [**Pokit Pro**](https://www.pokitmeter.com/).
 
