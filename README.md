@@ -1,3 +1,12 @@
+> ⚠️ **ARCHIVED / GRADUATED PROJECT**
+> This Web Bluetooth Proof of Concept has been successfully refined and integrated into the **Forge Open Bench (FOB)** ecosystem.
+>
+> Development has shifted to FOB to bypass browser-enforced bottlenecks and provide a unified, zero-telemetry instrumentation platform for Pokit Pro, Hantek, and Saleae hardware.
+>
+> 👉 **Check out the full GUI and active development here:** [github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)
+
+---
+
 # Pokit Pro Web GUI
 
 [![Version](https://img.shields.io/badge/version-v0.2.0-blue)](https://github.com/vailuc/pokit-pro-web-gui)
@@ -7,7 +16,12 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 **No cloud services. No account required. No backend.** All communication occurs directly between your browser and the Pokit Pro over Bluetooth LE.
 
+<<<<<<< HEAD
 The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
+=======
+- **Web Bluetooth** — no installation beyond a Chromium browser
+- **Python BLE Bridge** — native Bluetooth performance for extended oscilloscope use ([see Project Status](#project-status))
+>>>>>>> c4756cf (docs: graduate project to Forge Open Bench — archive README + issue draft)
 
 ## ⚠️ Important Limitations
 
@@ -67,6 +81,30 @@ Still under active development and protocol validation.
 - **IndexedDB History** — saved measurements with searchable history drawer.
 - **Toast Feedback** — non-blocking status notifications.
 - **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.
+<<<<<<< HEAD
+=======
+- **Dual Backend** — switch between Web Bluetooth and Python Bridge without changing your workflow.
+
+## Project Status
+
+**v0.2.0 — Archived / Graduated to [Forge Open Bench](https://github.com/marcus-louie/forge-open-bench)**
+
+This repository served its purpose as a proof of concept for a dual-backend, browser-based Pokit Pro interface. The core protocol work, dual-backend architecture, and Web Bluetooth viability tests have been ported forward into the full Forge Open Bench ecosystem.
+
+This repo remains a **static archive** for historical reference. The code is functional and was verified against my own Pokit Pro, but no further development is planned here.
+
+What worked here:
+- Multimeter, Oscilloscope, Data Logger — fully functional
+- Dual backend (Web Bluetooth + Python BLE Bridge) — proven architecture
+- Protocol implementation — reverse-engineered and validated Pokit Pro BLE protocol
+
+Where we hit limits:
+- Web Bluetooth MTU and notification batching caps DSO sample throughput
+- Browser sandboxing prevents native USB instrument access
+- No unified bench view across multiple instrument families
+
+These limits are exactly why the project graduated to FOB.
+>>>>>>> c4756cf (docs: graduate project to Forge Open Bench — archive README + issue draft)
 
 ## Screenshots
 
@@ -203,13 +241,18 @@ The `pokit/` layer has **no React dependency** and is covered by unit tests in:
 
 All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for full byte layouts.
 
-## Roadmap
+## What's Next
 
-- [ ] Multi-device support
-- [ ] Session recording and replay
-- [ ] Mobile-friendly responsive layouts
-- [ ] Dark theme polish and custom color skins
-- [ ] Offline PWA support
+Active development continues in **[Forge Open Bench](https://github.com/marcus-louie/forge-open-bench)**.
+
+FOB builds on the architecture proven here and adds:
+- Pure local-only, zero-telemetry hardware capture
+- Native USB bridging without browser-enforced data throttling
+- Unified 16-channel digital logic views alongside DSO and multimeter modules
+- Hantek DSO and Saleae Logic Analyzer support
+- Desktop-native performance with a web-tech GUI
+
+See you over there. 🛠️
 
 ## Acknowledgements
 
@@ -218,8 +261,8 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 - [**uPlot**](https://github.com/leeoniya/uPlot) — Lightweight plotting library used for the oscilloscope.
 
 ## Contributing
-
-Contributions are welcome. By submitting a pull request, you agree to the terms in [`CLA.md`](CLA.md), which grants the project maintainer the right to use your contributions under both the open-source and commercial licenses.
+ 
+This does not transfer copyright — you retain ownership of your work.
 
 ## License
 
