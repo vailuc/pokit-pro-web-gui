@@ -1,9 +1,14 @@
-> ⚠️ **ARCHIVED / GRADUATED PROJECT**
-> This Web Bluetooth Proof of Concept has been successfully refined and integrated into the **Forge Open Bench (FOB)** ecosystem.
+# Pokit Pro Web GUI (Archived / Proof of Concept)
+
+> ⚠️ **PROJECT GRADUATION NOTICE**
 >
-> Development has shifted to FOB to bypass browser-enforced bottlenecks and provide a unified, zero-telemetry instrumentation platform for Pokit Pro, Hantek, and Saleae hardware.
+> This repository served as a successful "napkin proof-of-concept" to experiment with Web Bluetooth abstractions, dual-backend architectures, and early-stage instrumentation history buffers.
 >
-> 👉 **Check out the full GUI and active development here:** [github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)
+> **Active development has fully transitioned to the [Forge Open Bench (FOB)](https://github.com/marcus-louie/forge-open-bench) ecosystem.**
+>
+> To bypass browser-enforced data throttling and deliver a professional-grade desktop workbench—complete with lower-latency streaming pipelines, integrated IDE workspaces, and unified support for Pokit Pro, Hantek, and Saleae hardware—we have moved beyond the browser environment.
+>
+> 👉 **Check out the active project and new desktop GUI here:** [github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)
 
 ---
 
