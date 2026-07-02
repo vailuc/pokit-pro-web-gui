@@ -21,12 +21,8 @@ A browser-based multimeter, oscilloscope and data logger for the [**Pokit Pro**]
 
 **No cloud services. No account required. No backend.** All communication occurs directly between your browser and the Pokit Pro over Bluetooth LE.
 
-<<<<<<< HEAD
-The BLE protocol is an independent TypeScript implementation based on interoperability observations. The [**pcolby/dokit**](https://github.com/pcolby/dokit) Qt/C++ library served as an architectural reference for protocol understanding, but is **not bundled, translated, or distributed** with this project.
-=======
 - **Web Bluetooth** — no installation beyond a Chromium browser
 - **Python BLE Bridge** — native Bluetooth performance for extended oscilloscope use ([see Project Status](#project-status))
->>>>>>> c4756cf (docs: graduate project to Forge Open Bench — archive README + issue draft)
 
 ## ⚠️ Important Limitations
 
@@ -86,8 +82,6 @@ Still under active development and protocol validation.
 - **IndexedDB History** — saved measurements with searchable history drawer.
 - **Toast Feedback** — non-blocking status notifications.
 - **Auto-reconnect** — automatically restores connection on page reload or transient BLE drop.
-<<<<<<< HEAD
-=======
 - **Dual Backend** — switch between Web Bluetooth and Python Bridge without changing your workflow.
 
 ## Project Status
@@ -109,7 +103,6 @@ Where we hit limits:
 - No unified bench view across multiple instrument families
 
 These limits are exactly why the project graduated to FOB.
->>>>>>> c4756cf (docs: graduate project to Forge Open Bench — archive README + issue draft)
 
 ## Screenshots
 
