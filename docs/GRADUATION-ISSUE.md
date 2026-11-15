@@ -32,4 +32,4 @@ This repository is now a **static archive** for historical reference. The code r
 
 See you over at the main FOB repo! 🛠️
 
-👉 **[github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)**
+👉 **[github.com/vailuc/ForgeOpenBench](https://github.com/vailuc/ForgeOpenBench)**
