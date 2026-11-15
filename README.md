@@ -9,6 +9,8 @@
 > To bypass browser-enforced data throttling and deliver a professional-grade desktop workbench—complete with lower-latency streaming pipelines, integrated IDE workspaces, and unified support for Pokit Pro, Hantek, and Saleae hardware—we have moved beyond the browser environment.
 >
 > 👉 **Check out the active project and new desktop GUI here:** [github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)
+>
+> *📡 Standing by — still no cloud, still yours. [Issue #7](https://github.com/vailuc/pokit-pro-web-gui/issues/7)*
 
 ---
 
