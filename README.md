@@ -4,11 +4,11 @@
 >
 > This repository served as a successful "napkin proof-of-concept" to experiment with Web Bluetooth abstractions, dual-backend architectures, and early-stage instrumentation history buffers.
 >
-> **Active development has fully transitioned to the [Forge Open Bench (FOB)](https://github.com/marcus-louie/forge-open-bench) ecosystem.**
+> **Active development has fully transitioned to the [Forge Open Bench (FOB)](https://github.com/vailuc/ForgeOpenBench) ecosystem.**
 >
 > To bypass browser-enforced data throttling and deliver a professional-grade desktop workbench—complete with lower-latency streaming pipelines, integrated IDE workspaces, and unified support for Pokit Pro, Hantek, and Saleae hardware—we have moved beyond the browser environment.
 >
-> 👉 **Check out the active project and new desktop GUI here:** [github.com/marcus-louie/forge-open-bench](https://github.com/marcus-louie/forge-open-bench)
+> 👉 **Check out the active project and new desktop GUI here:** [github.com/vailuc/ForgeOpenBench](https://github.com/vailuc/ForgeOpenBench)
 >
 > *📡 Standing by — still no cloud, still yours. [Issue #7](https://github.com/vailuc/pokit-pro-web-gui/issues/7)*
 
@@ -88,7 +88,7 @@ Still under active development and protocol validation.
 
 ## Project Status
 
-**v0.2.0 — Archived / Graduated to [Forge Open Bench](https://github.com/marcus-louie/forge-open-bench)**
+**v0.2.0 — Archived / Graduated to [Forge Open Bench](https://github.com/vailuc/ForgeOpenBench)**
 
 This repository served its purpose as a proof of concept for a dual-backend, browser-based Pokit Pro interface. The core protocol work, dual-backend architecture, and Web Bluetooth viability tests have been ported forward into the full Forge Open Bench ecosystem.
 
@@ -243,7 +243,7 @@ All multi-byte values are little-endian; floats are 32-bit. See `src/pokit/` for
 
 ## What's Next
 
-Active development continues in **[Forge Open Bench](https://github.com/marcus-louie/forge-open-bench)**.
+Active development continues in **[Forge Open Bench](https://github.com/vailuc/ForgeOpenBench)**.
 
 FOB builds on the architecture proven here and adds:
 - Pure local-only, zero-telemetry hardware capture
